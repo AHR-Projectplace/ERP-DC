@@ -1,0 +1,476 @@
+<script>
+// ── CONFIGURACIÓN ──────────────────────────────────────────
+const SUPABASE_URL = 'https://xxxxxxxxxxxx.supabase.co'; // ← tu URL nueva
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...'; // ← tu anon key nueva
+const DEFAULT_CODE = 'ERP2025!';
+let SB = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+let SESSION = null; // usuario de Supabase
+let PERFIL = null;  // datos del perfil (rol, etc.)
+let DB = { productos:[], clientes:[], cotizaciones:[], cotizacion_items:[], stock_movimientos:[] };
+
+// ── UTILIDADES ─────────────────────────────────────────────
+function cM(id){document.getElementById(id).classList.remove('open');}
+function oM(id){document.getElementById(id).classList.add('open');}
+function togglePw(id,btn){const el=document.getElementById(id);el.type=el.type==='password'?'text':'password';btn.textContent=el.type==='password'?'👁':'🙈';}
+async function sha256(t){const b=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(t));return Array.from(new Uint8Array(b)).map(x=>x.toString(16).padStart(2,'0')).join('');}
+function genPass(){const c='abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789!@#$%&*';let p='';for(let i=0;i<12;i++)p+=c[Math.floor(Math.random()*c.length)];return p;}
+function fmt$(n){return new Intl.NumberFormat('es-MX',{style:'currency',currency:'MXN'}).format(n||0);}
+function sv(id){
+  document.querySelectorAll('.vw').forEach(v=>v.classList.remove('active'));
+  document.querySelectorAll('.ntb').forEach(t=>t.classList.remove('active'));
+  document.getElementById('vw-'+id).classList.add('active');
+  event.target.classList.add('active');
+  if(id==='dashboard')rDashboard();
+  if(id==='productos')rProductos();
+  if(id==='clientes')rClientes();
+  if(id==='cotizaciones')rCotizaciones();
+  if(id==='inventario')rInventario();
+  if(id==='usuarios' && PERFIL?.rol==='super_admin')rUsuarios();
+}
+
+// ── AUTH con Supabase ──────────────────────────────────────
+async function checkCode(){
+  const {data} = await SB.from('config').select('valor').eq('clave','codigo_acceso_hash').single();
+  return data?.valor || (await sha256(DEFAULT_CODE));
+}
+
+async function doUnlock(){
+  const code = document.getElementById('ue-code').value;
+  const expected = await checkCode();
+  if (await sha256(code) !== expected) {
+    document.getElementById('ue-err').classList.add('show');
+    return;
+  }
+  // Verificar si ya hay usuarios registrados en auth.users
+  const {data: users} = await SB.auth.admin.listUsers(); // esto requiere service_role, no anon.
+  // Como no tenemos service_role en frontend, mejor comprobamos si hay al menos un super_admin en perfiles (necesita RLS temporal para lectura)
+  const {data: perfiles} = await SB.from('perfiles').select('id').limit(1);
+  if (!perfiles || perfiles.length === 0) {
+    showScr('scr-setup');
+  } else {
+    showScr('scr-login');
+  }
+}
+
+// Primer administrador (signUp + insertar en perfiles con rol super_admin)
+async function doSetup(){
+  const usuario = document.getElementById('su-user').value.trim();
+  const pass = document.getElementById('su-pass').value;
+  const pass2 = document.getElementById('su-pass2').value;
+  if (!usuario || pass !== pass2 || pass.length < 8) {
+    document.getElementById('su-err').textContent = 'Verifica los datos (mín 8 caracteres)';
+    document.getElementById('su-err').classList.add('show');
+    return;
+  }
+  // Registrar en Supabase Auth
+  const { data, error } = await SB.auth.signUp({
+    email: usuario + '@erp.local',  // email ficticio, puede ser cualquier string con @?
+    password: pass,
+  });
+  if (error) {
+    document.getElementById('su-err').textContent = error.message;
+    document.getElementById('su-err').classList.add('show');
+    return;
+  }
+  // Insertar perfil con rol super_admin
+  await SB.from('perfiles').insert({ id: data.user.id, usuario, rol: 'super_admin' });
+  showScr('scr-login');
+  document.getElementById('lg-ok').textContent = 'Admin creado. Inicia sesión.';
+  document.getElementById('lg-ok').classList.add('show');
+  document.getElementById('lg-user').value = usuario;
+}
+
+async function doLogin(){
+  const usuario = document.getElementById('lg-user').value.trim();
+  const pass = document.getElementById('lg-pass').value;
+  // Usamos email = usuario + '@erp.local' (sufijo fijo)
+  const { data, error } = await SB.auth.signInWithPassword({
+    email: usuario + '@erp.local',
+    password: pass,
+  });
+  if (error) {
+    document.getElementById('lg-err').textContent = 'Credenciales inválidas';
+    document.getElementById('lg-err').classList.add('show');
+    return;
+  }
+  SESSION = data.user;
+  // Obtener perfil
+  const { data: perfil } = await SB.from('perfiles').select('*').eq('id', SESSION.id).single();
+  PERFIL = perfil;
+  localStorage.setItem('erp_session', JSON.stringify({ userId: SESSION.id }));
+  initApp();
+}
+
+async function doLogout(){
+  await SB.auth.signOut();
+  SESSION = null; PERFIL = null;
+  localStorage.removeItem('erp_session');
+  document.getElementById('app').style.display = 'none';
+  showScr('scr-unlock');
+}
+
+async function initApp(){
+  if (!PERFIL) {
+    const saved = JSON.parse(localStorage.getItem('erp_session')||'null');
+    if (saved?.userId) {
+      const { data: { user } } = await SB.auth.getUser();
+      if (user) {
+        SESSION = user;
+        const { data: perfil } = await SB.from('perfiles').select('*').eq('id', user.id).single();
+        PERFIL = perfil;
+      } else {
+        doLogout(); return;
+      }
+    } else {
+      doLogout(); return;
+    }
+  }
+  document.getElementById('nu-name').textContent = PERFIL.usuario;
+  const roleEl = document.getElementById('nu-role');
+  roleEl.textContent = PERFIL.rol === 'super_admin' ? 'Super Admin' : 'Usuario';
+  roleEl.className = 'nu-role' + (PERFIL.rol === 'super_admin' ? ' sa' : '');
+  document.getElementById('nb-usuarios').style.display = PERFIL.rol === 'super_admin' ? '' : 'none';
+  showScr('app');
+  await loadAll();
+  rDashboard();
+}
+
+// ── CARGA DE DATOS (igual que antes, ahora usa SESSION) ─────
+async function loadAll(){
+  const [prod,cli,cot,items,movs] = await Promise.all([
+    SB.from('productos').select('*').order('nombre'),
+    SB.from('clientes').select('*').order('razon_social'),
+    SB.from('cotizaciones').select('*').order('created_at',{ascending:false}),
+    SB.from('cotizacion_items').select('*'),
+    SB.from('stock_movimientos').select('*').order('created_at',{ascending:false})
+  ]);
+  DB.productos = prod.data || [];
+  DB.clientes = cli.data || [];
+  DB.cotizaciones = cot.data || [];
+  DB.cotizacion_items = items.data || [];
+  DB.stock_movimientos = movs.data || [];
+}
+
+// ── DASHBOARD ──────────────────────────────────────────────
+function rDashboard(){
+  const mes = new Date().toISOString().slice(0,7);
+  const cotsMes = DB.cotizaciones.filter(c => c.created_at && c.created_at.startsWith(mes));
+  const tot = cotsMes.reduce((s,c) => s + Number(c.total||0), 0);
+  const aceptadas = cotsMes.filter(c => c.estado === 'aceptada').length;
+  const prodBajos = DB.productos.filter(p => p.stock_actual <= p.stock_minimo && p.stock_minimo > 0);
+  document.getElementById('d-kpis').innerHTML =
+    '<div class="sc"><div class="sv">'+cotsMes.length+'</div><div class="sl">Cotizaciones este mes</div></div>'+
+    '<div class="sc g"><div class="sv">'+fmt$(tot)+'</div><div class="sl">Total cotizado</div></div>'+
+    '<div class="sc"><div class="sv">'+aceptadas+'</div><div class="sl">Aceptadas</div></div>'+
+    '<div class="sc '+(prodBajos.length?'r':'g')+'"><div class="sv">'+prodBajos.length+'</div><div class="sl">Stock bajo</div></div>';
+  document.getElementById('d-stock-bajo').innerHTML = prodBajos.map(p =>
+    `<tr><td>${p.nombre}</td><td>${p.sku||'-'}</td><td style="color:var(--rd);font-weight:600;">${p.stock_actual}</td><td>${p.stock_minimo}</td></tr>`
+  ).join('') || '<tr><td colspan="4" class="empty">Todo en orden ✓</td></tr>';
+}
+
+// ── PRODUCTOS (restringido: solo admin puede modificar) ─────
+function rProductos(){
+  const q = (document.getElementById('prod-q').value||'').toLowerCase();
+  const lista = q ? DB.productos.filter(p => p.nombre.toLowerCase().includes(q)||(p.sku||'').toLowerCase().includes(q)) : DB.productos;
+  document.getElementById('prod-count').textContent = lista.length + ' productos';
+  const canEdit = PERFIL.rol === 'super_admin';
+  document.getElementById('prod-tbody').innerHTML = lista.map(p =>
+    `<tr><td>${p.sku||'-'}</td><td style="font-weight:500;">${p.nombre}</td><td>${p.categoria||'-'}</td><td>${fmt$(p.precio_venta)}</td><td>${p.stock_actual}</td>
+    <td>${canEdit ? `<button class="btn btn-sm" onclick="editProd(${p.id})">Editar</button>` : ''}</td></tr>`
+  ).join('') || '<tr><td colspan="6" class="empty">Sin productos</td></tr>';
+}
+function openProdModal(id=null){
+  if (PERFIL.rol !== 'super_admin') return;
+  document.getElementById('m-prod-id').value='';
+  ['sku','nombre','cat','unidad','costo','pventa','stock','min','desc'].forEach(k=>document.getElementById('m-prod-'+k).value='');
+  document.getElementById('m-prod-unidad').value='pza';
+  if(id){
+    const p=DB.productos.find(x=>x.id===id);if(!p)return;
+    document.getElementById('m-prod-id').value=p.id;
+    document.getElementById('m-prod-sku').value=p.sku||'';
+    document.getElementById('m-prod-nombre').value=p.nombre;
+    document.getElementById('m-prod-cat').value=p.categoria||'';
+    document.getElementById('m-prod-unidad').value=p.unidad||'pza';
+    document.getElementById('m-prod-costo').value=p.costo;
+    document.getElementById('m-prod-pventa').value=p.precio_venta;
+    document.getElementById('m-prod-stock').value=p.stock_actual;
+    document.getElementById('m-prod-min').value=p.stock_minimo;
+    document.getElementById('m-prod-desc').value=p.descripcion||'';
+    document.getElementById('m-prod-title').textContent='Editar producto';
+  }else{document.getElementById('m-prod-title').textContent='Nuevo producto';}
+  oM('m-prod');
+}
+async function guardarProducto(){
+  if (PERFIL.rol !== 'super_admin') return;
+  const obj = {
+    sku: document.getElementById('m-prod-sku').value.trim(),
+    nombre: document.getElementById('m-prod-nombre').value.trim(),
+    categoria: document.getElementById('m-prod-cat').value.trim(),
+    unidad: document.getElementById('m-prod-unidad').value.trim()||'pza',
+    costo: parseFloat(document.getElementById('m-prod-costo').value)||0,
+    precio_venta: parseFloat(document.getElementById('m-prod-pventa').value)||0,
+    stock_actual: parseInt(document.getElementById('m-prod-stock').value)||0,
+    stock_minimo: parseInt(document.getElementById('m-prod-min').value)||0,
+    descripcion: document.getElementById('m-prod-desc').value.trim()
+  };
+  if(!obj.nombre) return alert('El nombre es obligatorio');
+  const id = document.getElementById('m-prod-id').value;
+  if(id){
+    await SB.from('productos').update(obj).eq('id', id);
+  } else {
+    await SB.from('productos').insert(obj);
+  }
+  cM('m-prod'); await loadAll(); rProductos(); rDashboard();
+}
+function editProd(id){ openProdModal(id); }
+
+// ── CLIENTES (igual que productos) ─────────────────────────
+function rClientes(){
+  const q = (document.getElementById('cli-q').value||'').toLowerCase();
+  const lista = q ? DB.clientes.filter(c => c.razon_social.toLowerCase().includes(q)) : DB.clientes;
+  document.getElementById('cli-count').textContent = lista.length + ' clientes';
+  const canEdit = PERFIL.rol === 'super_admin';
+  document.getElementById('cli-tbody').innerHTML = lista.map(c =>
+    `<tr><td style="font-weight:500;">${c.razon_social}</td><td>${c.rfc||'-'}</td><td>${c.contacto||'-'}</td><td>${c.lista_precios||'general'}</td>
+    <td>${canEdit ? `<button class="btn btn-sm" onclick="editCli(${c.id})">Editar</button>` : ''}</td></tr>`
+  ).join('') || '<tr><td colspan="5" class="empty">Sin clientes</td></tr>';
+}
+function openCliModal(id=null){
+  if (PERFIL.rol !== 'super_admin') return;
+  ['id','razon','rfc','contacto','email','tel','dir','notas'].forEach(k=>document.getElementById('m-cli-'+k).value='');
+  document.getElementById('m-cli-lista').value='general';
+  if(id){
+    const c=DB.clientes.find(x=>x.id===id);if(!c)return;
+    document.getElementById('m-cli-id').value=c.id;
+    document.getElementById('m-cli-razon').value=c.razon_social;
+    document.getElementById('m-cli-rfc').value=c.rfc||'';
+    document.getElementById('m-cli-contacto').value=c.contacto||'';
+    document.getElementById('m-cli-email').value=c.email||'';
+    document.getElementById('m-cli-tel').value=c.telefono||'';
+    document.getElementById('m-cli-dir').value=c.direccion||'';
+    document.getElementById('m-cli-lista').value=c.lista_precios||'general';
+    document.getElementById('m-cli-notas').value=c.notas||'';
+    document.getElementById('m-cli-title').textContent='Editar cliente';
+  }else{document.getElementById('m-cli-title').textContent='Nuevo cliente';}
+  oM('m-cli');
+}
+async function guardarCliente(){
+  if (PERFIL.rol !== 'super_admin') return;
+  const obj = {
+    razon_social: document.getElementById('m-cli-razon').value.trim(),
+    rfc: document.getElementById('m-cli-rfc').value.trim(),
+    contacto: document.getElementById('m-cli-contacto').value.trim(),
+    email: document.getElementById('m-cli-email').value.trim(),
+    telefono: document.getElementById('m-cli-tel').value.trim(),
+    direccion: document.getElementById('m-cli-dir').value.trim(),
+    lista_precios: document.getElementById('m-cli-lista').value,
+    notas: document.getElementById('m-cli-notas').value.trim()
+  };
+  if(!obj.razon_social) return alert('La razón social es obligatoria');
+  const id = document.getElementById('m-cli-id').value;
+  if(id){ await SB.from('clientes').update(obj).eq('id', id); }
+  else { await SB.from('clientes').insert(obj); }
+  cM('m-cli'); await loadAll(); rClientes();
+}
+function editCli(id){ openCliModal(id); }
+
+// ── COTIZACIONES (cualquier autenticado puede crear) ────────
+let cotLineas = [];
+function openCotModal(){
+  document.getElementById('m-cot-notas').value=''; document.getElementById('m-cot-iva').value='16';
+  cotLineas = [{producto_id:'',descripcion:'',cantidad:1,precio_unitario:0,descuento_pct:0}];
+  const sel = document.getElementById('m-cot-cliente');
+  sel.innerHTML = '<option value="">Selecciona...</option>';
+  DB.clientes.forEach(c => sel.innerHTML += `<option value="${c.id}">${c.razon_social}</option>`);
+  cotRenderLineas(); oM('m-cot');
+}
+function cotAddLinea(){ cotLineas.push({producto_id:'',descripcion:'',cantidad:1,precio_unitario:0,descuento_pct:0}); cotRenderLineas(); }
+function cotRenderLineas(){
+  let h = '';
+  cotLineas.forEach((l,i)=>{
+    h += `<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap;">
+      <select class="sel" style="flex:1;min-width:150px;" onchange="cotSelProd(${i},this.value)"><option value="">Producto...</option>
+      ${DB.productos.map(p=>`<option value="${p.id}" ${l.producto_id==p.id?'selected':''}>${p.nombre}</option>`).join('')}</select>
+      <input class="inp" placeholder="Desc" value="${l.descripcion}" oninput="cotLineas[${i}].descripcion=this.value;cotCalcTotal()" style="width:120px;">
+      <input class="inp" type="number" value="${l.cantidad}" oninput="cotLineas[${i}].cantidad=parseFloat(this.value)||0;cotCalcTotal()" style="width:70px;" step="any">
+      <input class="inp" type="number" value="${l.precio_unitario}" oninput="cotLineas[${i}].precio_unitario=parseFloat(this.value)||0;cotCalcTotal()" style="width:100px;" step="0.01">
+      <input class="inp" type="number" value="${l.descuento_pct}" oninput="cotLineas[${i}].descuento_pct=parseFloat(this.value)||0;cotCalcTotal()" style="width:60px;" step="0.01" placeholder="Desc%">
+      <button class="btn btn-sm btn-danger" onclick="cotLineas.splice(${i},1);cotRenderLineas();cotCalcTotal()">x</button>
+    </div>`;
+  });
+  document.getElementById('cot-lineas').innerHTML = h;
+  cotCalcTotal();
+}
+function cotSelProd(i,pid){
+  cotLineas[i].producto_id = pid;
+  const p = DB.productos.find(x=>x.id==parseInt(pid));
+  if(p){ cotLineas[i].precio_unitario = p.precio_venta; cotLineas[i].descripcion = p.nombre; }
+  cotRenderLineas();
+}
+function cotCalcTotal(){
+  const subtotal = cotLineas.reduce((s,l) => s + (l.cantidad * l.precio_unitario * (1 - (l.descuento_pct||0)/100)), 0);
+  const ivaPct = parseFloat(document.getElementById('m-cot-iva').value)||0;
+  const iva = subtotal * (ivaPct/100);
+  document.getElementById('cot-subtotal').textContent = subtotal.toFixed(2);
+  document.getElementById('cot-iva-txt').textContent = iva.toFixed(2);
+  document.getElementById('cot-total').textContent = (subtotal + iva).toFixed(2);
+}
+async function guardarCotizacion(){
+  const cliente_id = document.getElementById('m-cot-cliente').value;
+  if(!cliente_id || cotLineas.length === 0) return alert('Cliente y al menos una línea son obligatorios');
+  const ivaPct = parseFloat(document.getElementById('m-cot-iva').value)||0;
+  const subtotal = cotLineas.reduce((s,l) => s + (l.cantidad * l.precio_unitario * (1 - (l.descuento_pct||0)/100)), 0);
+  const iva = subtotal * (ivaPct/100);
+  const numero = 'COT-' + Date.now().toString(36).toUpperCase();
+  const { data: cot, error } = await SB.from('cotizaciones').insert({
+    numero, cliente_id: parseInt(cliente_id), fecha: new Date().toISOString().split('T')[0],
+    vigencia: new Date(Date.now() + parseInt(document.getElementById('m-cot-vigencia').value||15)*86400000).toISOString().split('T')[0],
+    subtotal, iva, iva_porcentaje: ivaPct, total: subtotal+iva,
+    notas: document.getElementById('m-cot-notas').value, created_by: SESSION.id
+  }).select('id').single();
+  if(error) return alert('Error: '+error.message);
+  const items = cotLineas.map(l => ({
+    cotizacion_id: cot.id,
+    producto_id: l.producto_id ? parseInt(l.producto_id) : null,
+    descripcion: l.descripcion,
+    cantidad: l.cantidad,
+    precio_unitario: l.precio_unitario,
+    descuento_pct: l.descuento_pct||0,
+    importe: l.cantidad * l.precio_unitario * (1 - (l.descuento_pct||0)/100)
+  }));
+  await SB.from('cotizacion_items').insert(items);
+  cM('m-cot'); await loadAll(); rCotizaciones(); rDashboard();
+}
+function rCotizaciones(){
+  const f = document.getElementById('cot-filtro').value;
+  const lista = f ? DB.cotizaciones.filter(c => c.estado===f) : DB.cotizaciones;
+  document.getElementById('cot-count').textContent = lista.length + ' cotizaciones';
+  document.getElementById('cot-tbody').innerHTML = lista.map(c => {
+    const cli = DB.clientes.find(x => x.id === c.cliente_id);
+    const badge = c.estado==='aceptada'?'bg':c.estado==='enviada'?'ba':c.estado==='rechazada'?'br':'bgr';
+    const puedeCambiar = PERFIL.rol==='super_admin' || c.created_by===SESSION.id;
+    return `<tr><td>${c.numero}</td><td>${cli?cli.razon_social:'-'}</td><td>${c.fecha}</td><td>${fmt$(c.total)}</td>
+    <td><span class="badge ${badge}">${c.estado}</span></td>
+    <td><button class="btn btn-sm" onclick="verCot(${c.id})">Ver</button>
+    ${puedeCambiar ? `<button class="btn btn-sm" onclick="cambiarEstadoCot(${c.id},'${c.estado==='borrador'?'enviada':c.estado==='enviada'?'aceptada':'borrador'}')">${c.estado==='borrador'?'Enviar':c.estado==='enviada'?'Aceptar':'Reabrir'}</button>` : ''}</td></tr>`;
+  }).join('') || '<tr><td colspan="6" class="empty">Sin cotizaciones</td></tr>';
+}
+async function cambiarEstadoCot(id, estado){
+  await SB.from('cotizaciones').update({estado, updated_at: new Date().toISOString()}).eq('id', id);
+  await loadAll(); rCotizaciones();
+}
+async function verCot(id){
+  const c = DB.cotizaciones.find(x=>x.id===id); if(!c) return;
+  const items = DB.cotizacion_items.filter(x=>x.cotizacion_id===id);
+  const cli = DB.clientes.find(x=>x.id===c.cliente_id);
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  doc.setFontSize(16); doc.text('COTIZACIÓN '+c.numero,20,20);
+  doc.setFontSize(10);
+  doc.text('Cliente: '+(cli?cli.razon_social:''),20,30);
+  doc.text('Fecha: '+c.fecha,20,36);
+  doc.text('Vigencia: '+c.vigencia,20,42);
+  doc.text('Subtotal: $'+c.subtotal+' | IVA: $'+c.iva+' | Total: $'+c.total,20,48);
+  const rows = items.map(i => [i.descripcion||'', i.cantidad, i.precio_unitario, i.descuento_pct+'%', '$'+(i.importe||0)]);
+  doc.autoTable({ head: [['Producto','Cant','P.Unit','Desc%','Importe']], body: rows, startY:55 });
+  if(c.notas) doc.text('Notas: '+c.notas,20, doc.lastAutoTable.finalY+10);
+  doc.save('Cotizacion_'+c.numero+'.pdf');
+}
+
+// ── INVENTARIO ─────────────────────────────────────────────
+function rInventario(){
+  const pid = document.getElementById('inv-prod').value;
+  const lista = pid ? DB.stock_movimientos.filter(m => m.producto_id==parseInt(pid)) : DB.stock_movimientos;
+  const sel = document.getElementById('inv-prod'); const cur = sel.value;
+  sel.innerHTML = '<option value="">Todos los productos</option>';
+  DB.productos.forEach(p => sel.innerHTML += `<option value="${p.id}" ${p.id==cur?'selected':''}>${p.nombre} (Stock: ${p.stock_actual})</option>`);
+  document.getElementById('inv-tbody').innerHTML = lista.map(m => {
+    const p = DB.productos.find(x=>x.id===m.producto_id);
+    const tipo = m.tipo==='entrada'?'<span class="badge bg">Entrada</span>':m.tipo==='salida'?'<span class="badge br">Salida</span>':'<span class="badge ba">Ajuste</span>';
+    return `<tr><td>${(m.created_at||'').split('T')[0]}</td><td>${p?p.nombre:'-'}</td><td>${tipo}</td><td>${m.cantidad}</td><td>${m.referencia||'-'}</td><td>${m.created_by||'-'}</td></tr>`;
+  }).join('') || '<tr><td colspan="6" class="empty">Sin movimientos</td></tr>';
+}
+function openInvModal(){
+  const sel = document.getElementById('m-inv-prod'); sel.innerHTML = '<option value="">Selecciona...</option>';
+  DB.productos.forEach(p => sel.innerHTML += `<option value="${p.id}">${p.nombre}</option>`);
+  document.getElementById('m-inv-cant').value=''; document.getElementById('m-inv-ref').value=''; document.getElementById('m-inv-notas').value='';
+  oM('m-inv');
+}
+async function guardarMovimiento(){
+  const pid = document.getElementById('m-inv-prod').value;
+  const tipo = document.getElementById('m-inv-tipo').value;
+  const cant = parseInt(document.getElementById('m-inv-cant').value)||0;
+  if(!pid || !cant) return alert('Producto y cantidad obligatorios');
+  const mov = { producto_id: parseInt(pid), tipo, cantidad: cant, referencia: document.getElementById('m-inv-ref').value, notas: document.getElementById('m-inv-notas').value, created_by: SESSION.id };
+  await SB.from('stock_movimientos').insert(mov);
+  const p = DB.productos.find(x => x.id === parseInt(pid));
+  if(p){
+    const delta = tipo==='entrada' ? cant : tipo==='salida' ? -cant : 0;
+    if(tipo==='ajuste'){ await SB.from('productos').update({stock_actual: cant}).eq('id', pid); }
+    else { await SB.from('productos').update({stock_actual: p.stock_actual + delta}).eq('id', pid); }
+  }
+  cM('m-inv'); await loadAll(); rInventario(); rDashboard();
+}
+
+// ── USUARIOS (solo super_admin) ────────────────────────────
+async function rUsuarios(){
+  if (PERFIL.rol !== 'super_admin') return;
+  const { data: perfiles } = await SB.from('perfiles').select('*, usuario:usuario').order('creado_en', {ascending:false});
+  document.getElementById('usr-tbody').innerHTML = (perfiles||[]).map(p =>
+    `<tr><td>${p.usuario}</td><td>${p.rol==='super_admin'?'<span class="badge" style="background:#1A1916;color:#fff;">Super Admin</span>':'<span class="badge bgr">Usuario</span>'}</td>
+    <td>${p.activo ? '<span class="badge bg">Activo</span>' : '<span class="badge br">Inactivo</span>'}</td>
+    <td>${p.id !== SESSION.id ? `<button class="btn btn-sm" onclick="toggleUsr('${p.id}', ${!p.activo})">${p.activo?'Desactivar':'Activar'}</button>` : '(tú)'}</td></tr>`
+  ).join('') || '<tr><td colspan="4" class="empty">Sin usuarios</td></tr>';
+}
+async function openUsrModal(){
+  if (PERFIL.rol !== 'super_admin') return;
+  document.getElementById('m-usr-nombre').value=''; document.getElementById('m-usr-pass').value=''; oM('m-usr');
+}
+async function crearUsuario(){
+  if (PERFIL.rol !== 'super_admin') return;
+  const usuario = document.getElementById('m-usr-nombre').value.trim();
+  const pass = document.getElementById('m-usr-pass').value;
+  const rol = document.getElementById('m-usr-rol').value;
+  if (!usuario || !pass || pass.length < 8) {
+    document.getElementById('m-usr-err').textContent = 'Verifica los datos';
+    document.getElementById('m-usr-err').classList.add('show');
+    return;
+  }
+  const { data, error } = await SB.auth.signUp({
+    email: usuario + '@erp.local',
+    password: pass,
+  });
+  if (error) {
+    document.getElementById('m-usr-err').textContent = error.message;
+    document.getElementById('m-usr-err').classList.add('show');
+    return;
+  }
+  await SB.from('perfiles').insert({ id: data.user.id, usuario, rol, activo: true });
+  cM('m-usr'); rUsuarios();
+}
+async function toggleUsr(id, activo){
+  if (PERFIL.rol !== 'super_admin') return;
+  await SB.from('perfiles').update({ activo }).eq('id', id);
+  rUsuarios();
+}
+document.getElementById('gen-pass-btn')?.addEventListener('click', ()=>{
+  document.getElementById('m-usr-pass').value = genPass();
+});
+
+// ── INICIALIZACIÓN ─────────────────────────────────────────
+(async function(){
+  // Revisar sesión previa
+  const saved = JSON.parse(localStorage.getItem('erp_session')||'null');
+  if (saved?.userId) {
+    const { data: { user } } = await SB.auth.getUser();
+    if (user) {
+      SESSION = user;
+      const { data: perfil } = await SB.from('perfiles').select('*').eq('id', user.id).single();
+      PERFIL = perfil;
+      initApp();
+      return;
+    }
+  }
+  showScr('scr-unlock');
+})();
+</script>
