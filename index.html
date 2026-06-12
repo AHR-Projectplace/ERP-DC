@@ -2,6 +2,9 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ERP - Comercializadora</title>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -68,6 +71,7 @@
     </div>
     <button class="btn btn-primary" onclick="doUnlock()">Desbloquear</button>
     <div id="ue-err" class="alert alert-danger">Código incorrecto</div>
+    <div id="conn-status" style="margin-top:10px;font-size:12px;color:#999;text-align:center;">Conectando con Supabase...</div>
   </div>
 </div>
 
@@ -197,6 +201,24 @@
 </div></div>
 
 <script>
+// ── DEBUG: mostrar cualquier error en pantalla ──────────────
+window.addEventListener('error', function(e){
+  mostrarErrorDebug('JS Error: ' + e.message + ' (línea ' + e.lineno + ')');
+});
+window.addEventListener('unhandledrejection', function(e){
+  mostrarErrorDebug('Promise Error: ' + (e.reason?.message || e.reason));
+});
+function mostrarErrorDebug(msg){
+  let box = document.getElementById('debug-box');
+  if(!box){
+    box = document.createElement('div');
+    box.id = 'debug-box';
+    box.style = 'position:fixed;bottom:0;left:0;right:0;background:#c33;color:#fff;padding:10px;font-family:monospace;font-size:12px;z-index:99999;max-height:40vh;overflow:auto;white-space:pre-wrap;';
+    document.body.appendChild(box);
+  }
+  box.textContent += msg + '\n';
+}
+
 // CONFIG
 const SUPABASE_URL = 'https://yknwptsqamvqnoidtmcv.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlrbndwdHNxYW12cW5vaWR0bWN2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEyMTI1NDQsImV4cCI6MjA5Njc4ODU0NH0.bKRKx5nHe_TwWRTG-2TRYe8WJfXn2ZtsL0RQMOJtM7c';
@@ -234,21 +256,23 @@ function sv(id){
 async function doUnlock(){
   const code = document.getElementById('ue-code').value.trim();
   if(code !== 'ERP2025!'){
+    document.getElementById('ue-err').textContent='Código incorrecto';
     document.getElementById('ue-err').classList.add('show');
     return;
   }
   document.getElementById('ue-err').classList.remove('show');
   if(!SB){
-    alert('Conectando con la base de datos, intenta de nuevo en unos segundos.');
+    document.getElementById('ue-err').textContent='Supabase no está listo todavía (revisa tu conexión / la franja roja de error abajo si aparece).';
+    document.getElementById('ue-err').classList.add('show');
     return;
   }
-  try{
-    const {data: perfiles, error} = await SB.from('perfiles').select('id').limit(1);
-    if(error){ alert('Error Supabase: '+error.message); return; }
-    showScr((perfiles&&perfiles.length)?'scr-login':'scr-setup');
-  }catch(e){
-    alert('Error: '+e.message);
+  const {data: perfiles, error} = await SB.from('perfiles').select('id').limit(1);
+  if(error){
+    document.getElementById('ue-err').textContent='Error Supabase: '+error.message;
+    document.getElementById('ue-err').classList.add('show');
+    return;
   }
+  showScr((perfiles&&perfiles.length)?'scr-login':'scr-setup');
 }
 
 async function doSetup(){
@@ -523,9 +547,12 @@ async function toggleUsr(id,activo){
 (async function(){
   let intentos=0;
   while(!initSupabase() && intentos<50){ await new Promise(r=>setTimeout(r,100)); intentos++; }
+  const cs = document.getElementById('conn-status');
   if(!SB){
-    document.body.innerHTML='<div style="padding:20px;color:red;"><h2>Error</h2><p>No se pudo cargar Supabase. Verifica tu conexión y recarga.</p></div>';
+    if(cs){ cs.textContent='⚠️ No se pudo cargar Supabase (CDN bloqueado o sin internet)'; cs.style.color='#c33'; }
     return;
+  } else {
+    if(cs){ cs.textContent='✅ Conectado a Supabase'; cs.style.color='#3c3'; }
   }
   const saved=JSON.parse(localStorage.getItem('erp_session')||'null');
   if(saved?.userId){
