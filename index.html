@@ -1,17 +1,320 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ERP - Comercializadora</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f5f5f5; color: #333; }
+    .scr { display: none; } .scr.active { display: flex; }
+    #scr-unlock, #scr-setup, #scr-login { width: 100%; height: 100vh; align-items: center; justify-content: center; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+    .auth-card { background: white; padding: 40px; border-radius: 10px; box-shadow: 0 10px 40px rgba(0,0,0,0.3); width: 100%; max-width: 400px; }
+    .auth-card h2 { margin-bottom: 20px; color: #667eea; }
+    .form-group { margin-bottom: 15px; }
+    .form-group label { display: block; margin-bottom: 5px; font-weight: 500; }
+    .form-group input { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 5px; font-size: 14px; }
+    .form-group input:focus { outline: none; border-color: #667eea; box-shadow: 0 0 5px rgba(102, 126, 234, 0.3); }
+    .btn { padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; font-size: 14px; font-weight: 500; transition: all 0.3s; }
+    .btn-primary { background: #667eea; color: white; }
+    .btn-primary:hover { background: #5568d3; }
+    .btn-sm { padding: 5px 10px; font-size: 12px; }
+    .alert { padding: 10px; border-radius: 5px; margin-top: 10px; display: none; }
+    .alert.show { display: block; }
+    .alert-danger { background: #fee; color: #c33; border: 1px solid #fcc; }
+    .alert-success { background: #efe; color: #3c3; border: 1px solid #cfc; }
+    
+    #app { display: none; }
+    #app.active { display: flex; }
+    #app { width: 100%; height: 100vh; flex-direction: column; }
+    .navbar { background: #2c3e50; color: white; padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; }
+    .navbar h1 { font-size: 24px; }
+    .nav-user { display: flex; gap: 20px; align-items: center; }
+    .nav-user button { background: #e74c3c; padding: 8px 15px; color: white; border: none; border-radius: 5px; cursor: pointer; }
+    
+    .main { display: flex; flex: 1; }
+    .sidebar { width: 200px; background: #34495e; color: white; padding: 20px 0; overflow-y: auto; }
+    .sidebar button { width: 100%; text-align: left; padding: 12px 20px; border: none; background: none; color: white; cursor: pointer; font-size: 14px; transition: all 0.3s; }
+    .sidebar button:hover, .sidebar button.active { background: #2c3e50; padding-left: 30px; }
+    .sidebar button.active { border-left: 3px solid #3498db; }
+    
+    .content { flex: 1; padding: 20px; overflow-y: auto; }
+    .vw { display: none; }
+    .vw.active { display: block; }
+    
+    .ntb { display: none; }
+    .ntb.active { display: inline; }
+    
+    table { width: 100%; border-collapse: collapse; background: white; margin-top: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    thead { background: #667eea; color: white; }
+    th, td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }
+    tbody tr:hover { background: #f9f9f9; }
+    
+    .badge { display: inline-block; padding: 4px 8px; border-radius: 3px; font-size: 12px; font-weight: 500; }
+    .bg { background: #d4edda; color: #155724; }
+    .ba { background: #cfe2ff; color: #084298; }
+    .br { background: #f8d7da; color: #842029; }
+    .bgr { background: #e2e3e5; color: #383d41; }
+    
+    .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); align-items: center; justify-content: center; z-index: 1000; }
+    .modal.open { display: flex; }
+    .modal-content { background: white; padding: 30px; border-radius: 10px; width: 90%; max-width: 500px; box-shadow: 0 10px 40px rgba(0,0,0,0.3); }
+    .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+    .modal-header h3 { margin: 0; }
+    .modal-close { background: none; border: none; font-size: 24px; cursor: pointer; color: #999; }
+    
+    .empty { text-align: center; color: #999; padding: 20px; }
+    .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px; }
+    .card-title { font-size: 18px; font-weight: bold; margin-bottom: 10px; }
+    .card-value { font-size: 32px; font-weight: bold; color: #667eea; }
+  </style>
+</head>
+<body>
+
+<!-- PANTALLA DE DESBLOQUEO -->
+<div id="scr-unlock" class="scr active">
+  <div class="auth-card">
+    <h2>🔐 Acceso ERP</h2>
+    <div class="form-group">
+      <label>Código de Acceso</label>
+      <input type="password" id="ue-code" placeholder="Ingresa código">
+    </div>
+    <button class="btn btn-primary" style="width:100%;" onclick="doUnlock()">Desbloquear</button>
+    <div id="ue-err" class="alert alert-danger">Código incorrecto</div>
+  </div>
+</div>
+
+<!-- PANTALLA DE CONFIGURACIÓN INICIAL -->
+<div id="scr-setup" class="scr">
+  <div class="auth-card">
+    <h2>⚙️ Crear Admin</h2>
+    <div class="form-group">
+      <label>Usuario</label>
+      <input type="text" id="su-user" placeholder="usuario">
+    </div>
+    <div class="form-group">
+      <label>Contraseña (mín 8 caracteres)</label>
+      <input type="password" id="su-pass" placeholder="••••••••">
+    </div>
+    <div class="form-group">
+      <label>Confirmar</label>
+      <input type="password" id="su-pass2" placeholder="••••••••">
+    </div>
+    <button class="btn btn-primary" style="width:100%;" onclick="doSetup()">Crear Admin</button>
+    <div id="su-err" class="alert alert-danger"></div>
+  </div>
+</div>
+
+<!-- PANTALLA DE LOGIN -->
+<div id="scr-login" class="scr">
+  <div class="auth-card">
+    <h2>🔑 Iniciar Sesión</h2>
+    <div class="form-group">
+      <label>Usuario</label>
+      <input type="text" id="lg-user" placeholder="usuario">
+    </div>
+    <div class="form-group">
+      <label>Contraseña</label>
+      <input type="password" id="lg-pass" placeholder="••••••••">
+    </div>
+    <button class="btn btn-primary" style="width:100%;" onclick="doLogin()">Entrar</button>
+    <div id="lg-err" class="alert alert-danger"></div>
+    <div id="lg-ok" class="alert alert-success"></div>
+  </div>
+</div>
+
+<!-- APLICACIÓN PRINCIPAL -->
+<div id="app">
+  <!-- NAVBAR -->
+  <div class="navbar">
+    <h1>📊 ERP Comercializadora</h1>
+    <div class="nav-user">
+      <span id="nu-name"></span> <span id="nu-role" class="badge"></span>
+      <button onclick="doLogout()">Salir</button>
+    </div>
+  </div>
+
+  <div class="main">
+    <!-- SIDEBAR -->
+    <div class="sidebar">
+      <button class="ntb active" onclick="sv('dashboard')">📈 Dashboard</button>
+      <button class="ntb" onclick="sv('productos')">📦 Productos</button>
+      <button class="ntb" onclick="sv('clientes')">👥 Clientes</button>
+      <button class="ntb" onclick="sv('cotizaciones')">📄 Cotizaciones</button>
+      <button class="ntb" onclick="sv('inventario')">📊 Inventario</button>
+      <button class="ntb" id="nb-usuarios" style="display:none;" onclick="sv('usuarios')">👤 Usuarios</button>
+    </div>
+
+    <!-- CONTENIDO -->
+    <div class="content">
+      <!-- Dashboard -->
+      <div id="vw-dashboard" class="vw active">
+        <h2>Dashboard</h2>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-top: 20px;">
+          <div class="card">
+            <div class="card-title">Cotizaciones Este Mes</div>
+            <div class="card-value" id="db-cot-mes">0</div>
+          </div>
+          <div class="card">
+            <div class="card-title">Valor Total</div>
+            <div class="card-value" id="db-total">$0</div>
+          </div>
+          <div class="card">
+            <div class="card-title">Aceptadas</div>
+            <div class="card-value" id="db-acepta">0</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Productos -->
+      <div id="vw-productos" class="vw">
+        <h2>Productos</h2>
+        <button class="btn btn-primary" onclick="openProdModal()" style="margin-top:10px;">+ Nuevo Producto</button>
+        <table>
+          <thead><tr><th>ID</th><th>Nombre</th><th>Precio</th><th>Stock</th><th>Acciones</th></tr></thead>
+          <tbody id="prod-tbody"></tbody>
+        </table>
+      </div>
+
+      <!-- Clientes -->
+      <div id="vw-clientes" class="vw">
+        <h2>Clientes</h2>
+        <button class="btn btn-primary" onclick="openCliModal()" style="margin-top:10px;">+ Nuevo Cliente</button>
+        <table>
+          <thead><tr><th>ID</th><th>Razón Social</th><th>RFC</th><th>Correo</th><th>Acciones</th></tr></thead>
+          <tbody id="cli-tbody"></tbody>
+        </table>
+      </div>
+
+      <!-- Cotizaciones -->
+      <div id="vw-cotizaciones" class="vw">
+        <h2>Cotizaciones</h2>
+        <button class="btn btn-primary" onclick="openCotModal()" style="margin-top:10px;">+ Nueva Cotización</button>
+        <select id="cot-filtro" onchange="rCotizaciones()" style="margin-left:10px; padding:8px;">
+          <option value="">Todos los estados</option>
+          <option value="borrador">Borrador</option>
+          <option value="enviada">Enviada</option>
+          <option value="aceptada">Aceptada</option>
+          <option value="rechazada">Rechazada</option>
+        </select>
+        <div id="cot-count" style="margin-top:10px; color:#666;"></div>
+        <table>
+          <thead><tr><th>Número</th><th>Cliente</th><th>Fecha</th><th>Total</th><th>Estado</th><th>Acciones</th></tr></thead>
+          <tbody id="cot-tbody"></tbody>
+        </table>
+      </div>
+
+      <!-- Inventario -->
+      <div id="vw-inventario" class="vw">
+        <h2>Inventario</h2>
+        <button class="btn btn-primary" onclick="openInvModal()" style="margin-top:10px;">+ Nuevo Movimiento</button>
+        <select id="inv-prod" onchange="rInventario()" style="margin-left:10px; padding:8px;">
+          <option value="">Todos los productos</option>
+        </select>
+        <table>
+          <thead><tr><th>Fecha</th><th>Producto</th><th>Tipo</th><th>Cantidad</th><th>Referencia</th><th>Por</th></tr></thead>
+          <tbody id="inv-tbody"></tbody>
+        </table>
+      </div>
+
+      <!-- Usuarios -->
+      <div id="vw-usuarios" class="vw">
+        <h2>Usuarios</h2>
+        <button class="btn btn-primary" onclick="openUsrModal()" style="margin-top:10px;">+ Nuevo Usuario</button>
+        <table>
+          <thead><tr><th>Usuario</th><th>Rol</th><th>Estado</th><th>Acciones</th></tr></thead>
+          <tbody id="usr-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODALES -->
+<div id="m-prod" class="modal">
+  <div class="modal-content">
+    <div class="modal-header"><h3>Producto</h3><button class="modal-close" onclick="cM('m-prod')">×</button></div>
+    <div class="form-group"><label>Nombre</label><input type="text" id="m-prod-nombre"></div>
+    <div class="form-group"><label>Descripción</label><textarea id="m-prod-desc" rows="2"></textarea></div>
+    <div class="form-group"><label>Precio Unitario</label><input type="number" id="m-prod-precio" step="0.01"></div>
+    <div class="form-group"><label>Stock</label><input type="number" id="m-prod-stock"></div>
+    <button class="btn btn-primary" style="width:100%; margin-top:10px;" onclick="guardarProducto()">Guardar</button>
+    <div id="m-prod-err" class="alert alert-danger"></div>
+  </div>
+</div>
+
+<div id="m-cli" class="modal">
+  <div class="modal-content">
+    <div class="modal-header"><h3>Cliente</h3><button class="modal-close" onclick="cM('m-cli')">×</button></div>
+    <div class="form-group"><label>Razón Social</label><input type="text" id="m-cli-rs"></div>
+    <div class="form-group"><label>RFC</label><input type="text" id="m-cli-rfc"></div>
+    <div class="form-group"><label>Correo</label><input type="email" id="m-cli-email"></div>
+    <div class="form-group"><label>Teléfono</label><input type="text" id="m-cli-tel"></div>
+    <button class="btn btn-primary" style="width:100%; margin-top:10px;" onclick="guardarCliente()">Guardar</button>
+    <div id="m-cli-err" class="alert alert-danger"></div>
+  </div>
+</div>
+
+<div id="m-cot" class="modal">
+  <div class="modal-content">
+    <div class="modal-header"><h3>Cotización</h3><button class="modal-close" onclick="cM('m-cot')">×</button></div>
+    <div class="form-group"><label>Cliente</label><select id="m-cot-cliente"></select></div>
+    <div class="form-group"><label>IVA %</label><input type="number" id="m-cot-iva" value="16" step="0.01"></div>
+    <div class="form-group"><label>Vigencia (días)</label><input type="number" id="m-cot-vigencia" value="15"></div>
+    <div class="form-group"><label>Notas</label><textarea id="m-cot-notas" rows="2"></textarea></div>
+    <div id="m-cot-items" style="margin: 15px 0; padding: 10px; background: #f9f9f9; border-radius: 5px;"></div>
+    <button class="btn btn-primary" onclick="addCotItem()" style="width:100%; margin-bottom:10px;">+ Agregar Línea</button>
+    <button class="btn btn-primary" style="width:100%; margin-bottom:10px;" onclick="guardarCotizacion()">Guardar Cotización</button>
+    <div id="m-cot-err" class="alert alert-danger"></div>
+  </div>
+</div>
+
+<div id="m-inv" class="modal">
+  <div class="modal-content">
+    <div class="modal-header"><h3>Movimiento Inventario</h3><button class="modal-close" onclick="cM('m-inv')">×</button></div>
+    <div class="form-group"><label>Producto</label><select id="m-inv-prod"></select></div>
+    <div class="form-group"><label>Tipo</label><select id="m-inv-tipo"><option value="entrada">Entrada</option><option value="salida">Salida</option><option value="ajuste">Ajuste</option></select></div>
+    <div class="form-group"><label>Cantidad</label><input type="number" id="m-inv-cant"></div>
+    <div class="form-group"><label>Referencia</label><input type="text" id="m-inv-ref"></div>
+    <div class="form-group"><label>Notas</label><textarea id="m-inv-notas" rows="2"></textarea></div>
+    <button class="btn btn-primary" style="width:100%; margin-top:10px;" onclick="guardarMovimiento()">Guardar</button>
+    <div id="m-inv-err" class="alert alert-danger"></div>
+  </div>
+</div>
+
+<div id="m-usr" class="modal">
+  <div class="modal-content">
+    <div class="modal-header"><h3>Usuario</h3><button class="modal-close" onclick="cM('m-usr')">×</button></div>
+    <div class="form-group"><label>Usuario</label><input type="text" id="m-usr-nombre"></div>
+    <div class="form-group"><label>Contraseña</label><div style="display:flex; gap:5px;"><input type="password" id="m-usr-pass" style="flex:1;"><button class="btn btn-sm" id="gen-pass-btn">🔄</button></div></div>
+    <div class="form-group"><label>Rol</label><select id="m-usr-rol"><option value="usuario">Usuario</option><option value="super_admin">Super Admin</option></select></div>
+    <button class="btn btn-primary" style="width:100%; margin-top:10px;" onclick="crearUsuario()">Crear</button>
+    <div id="m-usr-err" class="alert alert-danger"></div>
+  </div>
+</div>
+
 <script>
 // ── CONFIGURACIÓN ──────────────────────────────────────────
-const SUPABASE_URL = 'https://xxxxxxxxxxxx.supabase.co'; // ← tu URL nueva
-const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...'; // ← tu anon key nueva
+const SUPABASE_URL = 'https://yknwptsqamvqnoidtmcv.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_YxtAYV_g4kffir5jyQMnYQ_-_D_Ulvo';
+'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImR1anhsd2R3cW92dHdjbWZiZ3FxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MDA1MDAxMDUsImV4cCI6MjAxNjA3NjEwNX0.placeholder_key';
 const DEFAULT_CODE = 'ERP2025!';
-let SB = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-let SESSION = null; // usuario de Supabase
-let PERFIL = null;  // datos del perfil (rol, etc.)
+let SB = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+let SESSION = null;
+let PERFIL = null;
 let DB = { productos:[], clientes:[], cotizaciones:[], cotizacion_items:[], stock_movimientos:[] };
+let cotLineas = [];
 
 // ── UTILIDADES ─────────────────────────────────────────────
+function showScr(id){
+  document.querySelectorAll('.scr').forEach(s => s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+}
 function cM(id){document.getElementById(id).classList.remove('open');}
 function oM(id){document.getElementById(id).classList.add('open');}
-function togglePw(id,btn){const el=document.getElementById(id);el.type=el.type==='password'?'text':'password';btn.textContent=el.type==='password'?'👁':'🙈';}
 async function sha256(t){const b=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(t));return Array.from(new Uint8Array(b)).map(x=>x.toString(16).padStart(2,'0')).join('');}
 function genPass(){const c='abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789!@#$%&*';let p='';for(let i=0;i<12;i++)p+=c[Math.floor(Math.random()*c.length)];return p;}
 function fmt$(n){return new Intl.NumberFormat('es-MX',{style:'currency',currency:'MXN'}).format(n||0);}
@@ -28,12 +331,11 @@ function sv(id){
   if(id==='usuarios' && PERFIL?.rol==='super_admin')rUsuarios();
 }
 
-// ── AUTH con Supabase ──────────────────────────────────────
+// ── AUTH ───────────────────────────────────────────────────
 async function checkCode(){
-  const {data} = await SB.from('config').select('valor').eq('clave','codigo_acceso_hash').single();
+  const {data} = await SB.from('config').select('valor').eq('clave','codigo_acceso_hash').single().catch(()=>({data:null}));
   return data?.valor || (await sha256(DEFAULT_CODE));
 }
-
 async function doUnlock(){
   const code = document.getElementById('ue-code').value;
   const expected = await checkCode();
@@ -41,18 +343,13 @@ async function doUnlock(){
     document.getElementById('ue-err').classList.add('show');
     return;
   }
-  // Verificar si ya hay usuarios registrados en auth.users
-  const {data: users} = await SB.auth.admin.listUsers(); // esto requiere service_role, no anon.
-  // Como no tenemos service_role en frontend, mejor comprobamos si hay al menos un super_admin en perfiles (necesita RLS temporal para lectura)
-  const {data: perfiles} = await SB.from('perfiles').select('id').limit(1);
+  const {data: perfiles} = await SB.from('perfiles').select('id').limit(1).catch(()=>({data:null}));
   if (!perfiles || perfiles.length === 0) {
     showScr('scr-setup');
   } else {
     showScr('scr-login');
   }
 }
-
-// Primer administrador (signUp + insertar en perfiles con rol super_admin)
 async function doSetup(){
   const usuario = document.getElementById('su-user').value.trim();
   const pass = document.getElementById('su-pass').value;
@@ -62,9 +359,8 @@ async function doSetup(){
     document.getElementById('su-err').classList.add('show');
     return;
   }
-  // Registrar en Supabase Auth
   const { data, error } = await SB.auth.signUp({
-    email: usuario + '@erp.local',  // email ficticio, puede ser cualquier string con @?
+    email: usuario + '@erp.local',
     password: pass,
   });
   if (error) {
@@ -72,18 +368,15 @@ async function doSetup(){
     document.getElementById('su-err').classList.add('show');
     return;
   }
-  // Insertar perfil con rol super_admin
   await SB.from('perfiles').insert({ id: data.user.id, usuario, rol: 'super_admin' });
   showScr('scr-login');
   document.getElementById('lg-ok').textContent = 'Admin creado. Inicia sesión.';
   document.getElementById('lg-ok').classList.add('show');
   document.getElementById('lg-user').value = usuario;
 }
-
 async function doLogin(){
   const usuario = document.getElementById('lg-user').value.trim();
   const pass = document.getElementById('lg-pass').value;
-  // Usamos email = usuario + '@erp.local' (sufijo fijo)
   const { data, error } = await SB.auth.signInWithPassword({
     email: usuario + '@erp.local',
     password: pass,
@@ -94,21 +387,18 @@ async function doLogin(){
     return;
   }
   SESSION = data.user;
-  // Obtener perfil
-  const { data: perfil } = await SB.from('perfiles').select('*').eq('id', SESSION.id).single();
+  const { data: perfil } = await SB.from('perfiles').select('*').eq('id', SESSION.id).single().catch(()=>({data:null}));
   PERFIL = perfil;
   localStorage.setItem('erp_session', JSON.stringify({ userId: SESSION.id }));
   initApp();
 }
-
 async function doLogout(){
   await SB.auth.signOut();
   SESSION = null; PERFIL = null;
   localStorage.removeItem('erp_session');
-  document.getElementById('app').style.display = 'none';
+  document.getElementById('app').classList.remove('active');
   showScr('scr-unlock');
 }
-
 async function initApp(){
   if (!PERFIL) {
     const saved = JSON.parse(localStorage.getItem('erp_session')||'null');
@@ -116,7 +406,7 @@ async function initApp(){
       const { data: { user } } = await SB.auth.getUser();
       if (user) {
         SESSION = user;
-        const { data: perfil } = await SB.from('perfiles').select('*').eq('id', user.id).single();
+        const { data: perfil } = await SB.from('perfiles').select('*').eq('id', user.id).single().catch(()=>({data:null}));
         PERFIL = perfil;
       } else {
         doLogout(); return;
@@ -130,12 +420,13 @@ async function initApp(){
   roleEl.textContent = PERFIL.rol === 'super_admin' ? 'Super Admin' : 'Usuario';
   roleEl.className = 'nu-role' + (PERFIL.rol === 'super_admin' ? ' sa' : '');
   document.getElementById('nb-usuarios').style.display = PERFIL.rol === 'super_admin' ? '' : 'none';
+  document.getElementById('app').classList.add('active');
   showScr('app');
   await loadAll();
   rDashboard();
 }
 
-// ── CARGA DE DATOS (igual que antes, ahora usa SESSION) ─────
+// ── CARGA DE DATOS ─────────────────────────────────────────
 async function loadAll(){
   const [prod,cli,cot,items,movs] = await Promise.all([
     SB.from('productos').select('*').order('nombre'),
@@ -157,190 +448,49 @@ function rDashboard(){
   const cotsMes = DB.cotizaciones.filter(c => c.created_at && c.created_at.startsWith(mes));
   const tot = cotsMes.reduce((s,c) => s + Number(c.total||0), 0);
   const aceptadas = cotsMes.filter(c => c.estado === 'aceptada').length;
-  const prodBajos = DB.productos.filter(p => p.stock_actual <= p.stock_minimo && p.stock_minimo > 0);
-  document.getElementById('d-kpis').innerHTML =
-    '<div class="sc"><div class="sv">'+cotsMes.length+'</div><div class="sl">Cotizaciones este mes</div></div>'+
-    '<div class="sc g"><div class="sv">'+fmt$(tot)+'</div><div class="sl">Total cotizado</div></div>'+
-    '<div class="sc"><div class="sv">'+aceptadas+'</div><div class="sl">Aceptadas</div></div>'+
-    '<div class="sc '+(prodBajos.length?'r':'g')+'"><div class="sv">'+prodBajos.length+'</div><div class="sl">Stock bajo</div></div>';
-  document.getElementById('d-stock-bajo').innerHTML = prodBajos.map(p =>
-    `<tr><td>${p.nombre}</td><td>${p.sku||'-'}</td><td style="color:var(--rd);font-weight:600;">${p.stock_actual}</td><td>${p.stock_minimo}</td></tr>`
-  ).join('') || '<tr><td colspan="4" class="empty">Todo en orden ✓</td></tr>';
+  document.getElementById('db-cot-mes').textContent = cotsMes.length;
+  document.getElementById('db-total').textContent = fmt$(tot);
+  document.getElementById('db-acepta').textContent = aceptadas;
 }
 
-// ── PRODUCTOS (restringido: solo admin puede modificar) ─────
+// ── PRODUCTOS ──────────────────────────────────────────────
 function rProductos(){
-  const q = (document.getElementById('prod-q').value||'').toLowerCase();
-  const lista = q ? DB.productos.filter(p => p.nombre.toLowerCase().includes(q)||(p.sku||'').toLowerCase().includes(q)) : DB.productos;
-  document.getElementById('prod-count').textContent = lista.length + ' productos';
-  const canEdit = PERFIL.rol === 'super_admin';
-  document.getElementById('prod-tbody').innerHTML = lista.map(p =>
-    `<tr><td>${p.sku||'-'}</td><td style="font-weight:500;">${p.nombre}</td><td>${p.categoria||'-'}</td><td>${fmt$(p.precio_venta)}</td><td>${p.stock_actual}</td>
-    <td>${canEdit ? `<button class="btn btn-sm" onclick="editProd(${p.id})">Editar</button>` : ''}</td></tr>`
-  ).join('') || '<tr><td colspan="6" class="empty">Sin productos</td></tr>';
+  const sel = document.getElementById('m-cot-cliente');
+  document.getElementById('prod-tbody').innerHTML = DB.productos.map(p => 
+    `<tr><td>${p.id}</td><td>${p.nombre}</td><td>${fmt$(p.precio_unitario)}</td><td>${p.stock_actual}</td>
+    <td><button class="btn btn-sm" onclick="editProd(${p.id})">Editar</button></td></tr>`
+  ).join('') || '<tr><td colspan="5" class="empty">Sin productos</td></tr>';
 }
-function openProdModal(id=null){
-  if (PERFIL.rol !== 'super_admin') return;
-  document.getElementById('m-prod-id').value='';
-  ['sku','nombre','cat','unidad','costo','pventa','stock','min','desc'].forEach(k=>document.getElementById('m-prod-'+k).value='');
-  document.getElementById('m-prod-unidad').value='pza';
-  if(id){
-    const p=DB.productos.find(x=>x.id===id);if(!p)return;
-    document.getElementById('m-prod-id').value=p.id;
-    document.getElementById('m-prod-sku').value=p.sku||'';
-    document.getElementById('m-prod-nombre').value=p.nombre;
-    document.getElementById('m-prod-cat').value=p.categoria||'';
-    document.getElementById('m-prod-unidad').value=p.unidad||'pza';
-    document.getElementById('m-prod-costo').value=p.costo;
-    document.getElementById('m-prod-pventa').value=p.precio_venta;
-    document.getElementById('m-prod-stock').value=p.stock_actual;
-    document.getElementById('m-prod-min').value=p.stock_minimo;
-    document.getElementById('m-prod-desc').value=p.descripcion||'';
-    document.getElementById('m-prod-title').textContent='Editar producto';
-  }else{document.getElementById('m-prod-title').textContent='Nuevo producto';}
-  oM('m-prod');
-}
+function openProdModal(){oM('m-prod'); document.getElementById('m-prod-nombre').focus();}
 async function guardarProducto(){
-  if (PERFIL.rol !== 'super_admin') return;
-  const obj = {
-    sku: document.getElementById('m-prod-sku').value.trim(),
-    nombre: document.getElementById('m-prod-nombre').value.trim(),
-    categoria: document.getElementById('m-prod-cat').value.trim(),
-    unidad: document.getElementById('m-prod-unidad').value.trim()||'pza',
-    costo: parseFloat(document.getElementById('m-prod-costo').value)||0,
-    precio_venta: parseFloat(document.getElementById('m-prod-pventa').value)||0,
-    stock_actual: parseInt(document.getElementById('m-prod-stock').value)||0,
-    stock_minimo: parseInt(document.getElementById('m-prod-min').value)||0,
-    descripcion: document.getElementById('m-prod-desc').value.trim()
-  };
-  if(!obj.nombre) return alert('El nombre es obligatorio');
-  const id = document.getElementById('m-prod-id').value;
-  if(id){
-    await SB.from('productos').update(obj).eq('id', id);
-  } else {
-    await SB.from('productos').insert(obj);
-  }
-  cM('m-prod'); await loadAll(); rProductos(); rDashboard();
+  const nombre = document.getElementById('m-prod-nombre').value;
+  const desc = document.getElementById('m-prod-desc').value;
+  const precio = parseFloat(document.getElementById('m-prod-precio').value)||0;
+  const stock = parseInt(document.getElementById('m-prod-stock').value)||0;
+  if(!nombre || precio<=0) return alert('Nombre y precio obligatorios');
+  await SB.from('productos').insert({nombre, descripcion: desc, precio_unitario: precio, stock_actual: stock});
+  cM('m-prod'); await loadAll(); rProductos();
 }
-function editProd(id){ openProdModal(id); }
 
-// ── CLIENTES (igual que productos) ─────────────────────────
+// ── CLIENTES ───────────────────────────────────────────────
 function rClientes(){
-  const q = (document.getElementById('cli-q').value||'').toLowerCase();
-  const lista = q ? DB.clientes.filter(c => c.razon_social.toLowerCase().includes(q)) : DB.clientes;
-  document.getElementById('cli-count').textContent = lista.length + ' clientes';
-  const canEdit = PERFIL.rol === 'super_admin';
-  document.getElementById('cli-tbody').innerHTML = lista.map(c =>
-    `<tr><td style="font-weight:500;">${c.razon_social}</td><td>${c.rfc||'-'}</td><td>${c.contacto||'-'}</td><td>${c.lista_precios||'general'}</td>
-    <td>${canEdit ? `<button class="btn btn-sm" onclick="editCli(${c.id})">Editar</button>` : ''}</td></tr>`
+  document.getElementById('cli-tbody').innerHTML = DB.clientes.map(c => 
+    `<tr><td>${c.id}</td><td>${c.razon_social}</td><td>${c.rfc}</td><td>${c.email}</td>
+    <td><button class="btn btn-sm" onclick="editCli(${c.id})">Editar</button></td></tr>`
   ).join('') || '<tr><td colspan="5" class="empty">Sin clientes</td></tr>';
 }
-function openCliModal(id=null){
-  if (PERFIL.rol !== 'super_admin') return;
-  ['id','razon','rfc','contacto','email','tel','dir','notas'].forEach(k=>document.getElementById('m-cli-'+k).value='');
-  document.getElementById('m-cli-lista').value='general';
-  if(id){
-    const c=DB.clientes.find(x=>x.id===id);if(!c)return;
-    document.getElementById('m-cli-id').value=c.id;
-    document.getElementById('m-cli-razon').value=c.razon_social;
-    document.getElementById('m-cli-rfc').value=c.rfc||'';
-    document.getElementById('m-cli-contacto').value=c.contacto||'';
-    document.getElementById('m-cli-email').value=c.email||'';
-    document.getElementById('m-cli-tel').value=c.telefono||'';
-    document.getElementById('m-cli-dir').value=c.direccion||'';
-    document.getElementById('m-cli-lista').value=c.lista_precios||'general';
-    document.getElementById('m-cli-notas').value=c.notas||'';
-    document.getElementById('m-cli-title').textContent='Editar cliente';
-  }else{document.getElementById('m-cli-title').textContent='Nuevo cliente';}
-  oM('m-cli');
-}
+function openCliModal(){oM('m-cli'); document.getElementById('m-cli-rs').focus();}
 async function guardarCliente(){
-  if (PERFIL.rol !== 'super_admin') return;
-  const obj = {
-    razon_social: document.getElementById('m-cli-razon').value.trim(),
-    rfc: document.getElementById('m-cli-rfc').value.trim(),
-    contacto: document.getElementById('m-cli-contacto').value.trim(),
-    email: document.getElementById('m-cli-email').value.trim(),
-    telefono: document.getElementById('m-cli-tel').value.trim(),
-    direccion: document.getElementById('m-cli-dir').value.trim(),
-    lista_precios: document.getElementById('m-cli-lista').value,
-    notas: document.getElementById('m-cli-notas').value.trim()
-  };
-  if(!obj.razon_social) return alert('La razón social es obligatoria');
-  const id = document.getElementById('m-cli-id').value;
-  if(id){ await SB.from('clientes').update(obj).eq('id', id); }
-  else { await SB.from('clientes').insert(obj); }
+  const rs = document.getElementById('m-cli-rs').value;
+  const rfc = document.getElementById('m-cli-rfc').value;
+  const email = document.getElementById('m-cli-email').value;
+  const tel = document.getElementById('m-cli-tel').value;
+  if(!rs || !rfc) return alert('Razón Social y RFC obligatorios');
+  await SB.from('clientes').insert({razon_social: rs, rfc, email, telefono: tel});
   cM('m-cli'); await loadAll(); rClientes();
 }
-function editCli(id){ openCliModal(id); }
 
-// ── COTIZACIONES (cualquier autenticado puede crear) ────────
-let cotLineas = [];
-function openCotModal(){
-  document.getElementById('m-cot-notas').value=''; document.getElementById('m-cot-iva').value='16';
-  cotLineas = [{producto_id:'',descripcion:'',cantidad:1,precio_unitario:0,descuento_pct:0}];
-  const sel = document.getElementById('m-cot-cliente');
-  sel.innerHTML = '<option value="">Selecciona...</option>';
-  DB.clientes.forEach(c => sel.innerHTML += `<option value="${c.id}">${c.razon_social}</option>`);
-  cotRenderLineas(); oM('m-cot');
-}
-function cotAddLinea(){ cotLineas.push({producto_id:'',descripcion:'',cantidad:1,precio_unitario:0,descuento_pct:0}); cotRenderLineas(); }
-function cotRenderLineas(){
-  let h = '';
-  cotLineas.forEach((l,i)=>{
-    h += `<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap;">
-      <select class="sel" style="flex:1;min-width:150px;" onchange="cotSelProd(${i},this.value)"><option value="">Producto...</option>
-      ${DB.productos.map(p=>`<option value="${p.id}" ${l.producto_id==p.id?'selected':''}>${p.nombre}</option>`).join('')}</select>
-      <input class="inp" placeholder="Desc" value="${l.descripcion}" oninput="cotLineas[${i}].descripcion=this.value;cotCalcTotal()" style="width:120px;">
-      <input class="inp" type="number" value="${l.cantidad}" oninput="cotLineas[${i}].cantidad=parseFloat(this.value)||0;cotCalcTotal()" style="width:70px;" step="any">
-      <input class="inp" type="number" value="${l.precio_unitario}" oninput="cotLineas[${i}].precio_unitario=parseFloat(this.value)||0;cotCalcTotal()" style="width:100px;" step="0.01">
-      <input class="inp" type="number" value="${l.descuento_pct}" oninput="cotLineas[${i}].descuento_pct=parseFloat(this.value)||0;cotCalcTotal()" style="width:60px;" step="0.01" placeholder="Desc%">
-      <button class="btn btn-sm btn-danger" onclick="cotLineas.splice(${i},1);cotRenderLineas();cotCalcTotal()">x</button>
-    </div>`;
-  });
-  document.getElementById('cot-lineas').innerHTML = h;
-  cotCalcTotal();
-}
-function cotSelProd(i,pid){
-  cotLineas[i].producto_id = pid;
-  const p = DB.productos.find(x=>x.id==parseInt(pid));
-  if(p){ cotLineas[i].precio_unitario = p.precio_venta; cotLineas[i].descripcion = p.nombre; }
-  cotRenderLineas();
-}
-function cotCalcTotal(){
-  const subtotal = cotLineas.reduce((s,l) => s + (l.cantidad * l.precio_unitario * (1 - (l.descuento_pct||0)/100)), 0);
-  const ivaPct = parseFloat(document.getElementById('m-cot-iva').value)||0;
-  const iva = subtotal * (ivaPct/100);
-  document.getElementById('cot-subtotal').textContent = subtotal.toFixed(2);
-  document.getElementById('cot-iva-txt').textContent = iva.toFixed(2);
-  document.getElementById('cot-total').textContent = (subtotal + iva).toFixed(2);
-}
-async function guardarCotizacion(){
-  const cliente_id = document.getElementById('m-cot-cliente').value;
-  if(!cliente_id || cotLineas.length === 0) return alert('Cliente y al menos una línea son obligatorios');
-  const ivaPct = parseFloat(document.getElementById('m-cot-iva').value)||0;
-  const subtotal = cotLineas.reduce((s,l) => s + (l.cantidad * l.precio_unitario * (1 - (l.descuento_pct||0)/100)), 0);
-  const iva = subtotal * (ivaPct/100);
-  const numero = 'COT-' + Date.now().toString(36).toUpperCase();
-  const { data: cot, error } = await SB.from('cotizaciones').insert({
-    numero, cliente_id: parseInt(cliente_id), fecha: new Date().toISOString().split('T')[0],
-    vigencia: new Date(Date.now() + parseInt(document.getElementById('m-cot-vigencia').value||15)*86400000).toISOString().split('T')[0],
-    subtotal, iva, iva_porcentaje: ivaPct, total: subtotal+iva,
-    notas: document.getElementById('m-cot-notas').value, created_by: SESSION.id
-  }).select('id').single();
-  if(error) return alert('Error: '+error.message);
-  const items = cotLineas.map(l => ({
-    cotizacion_id: cot.id,
-    producto_id: l.producto_id ? parseInt(l.producto_id) : null,
-    descripcion: l.descripcion,
-    cantidad: l.cantidad,
-    precio_unitario: l.precio_unitario,
-    descuento_pct: l.descuento_pct||0,
-    importe: l.cantidad * l.precio_unitario * (1 - (l.descuento_pct||0)/100)
-  }));
-  await SB.from('cotizacion_items').insert(items);
-  cM('m-cot'); await loadAll(); rCotizaciones(); rDashboard();
-}
+// ── COTIZACIONES ───────────────────────────────────────────
 function rCotizaciones(){
   const f = document.getElementById('cot-filtro').value;
   const lista = f ? DB.cotizaciones.filter(c => c.estado===f) : DB.cotizaciones;
@@ -355,6 +505,63 @@ function rCotizaciones(){
     ${puedeCambiar ? `<button class="btn btn-sm" onclick="cambiarEstadoCot(${c.id},'${c.estado==='borrador'?'enviada':c.estado==='enviada'?'aceptada':'borrador'}')">${c.estado==='borrador'?'Enviar':c.estado==='enviada'?'Aceptar':'Reabrir'}</button>` : ''}</td></tr>`;
   }).join('') || '<tr><td colspan="6" class="empty">Sin cotizaciones</td></tr>';
 }
+function openCotModal(){
+  cotLineas = [];
+  const sel = document.getElementById('m-cot-cliente');
+  sel.innerHTML = '<option value="">Selecciona cliente...</option>';
+  DB.clientes.forEach(c => sel.innerHTML += `<option value="${c.id}">${c.razon_social}</option>`);
+  document.getElementById('m-cot-items').innerHTML = '';
+  document.getElementById('m-cot-iva').value = '16';
+  document.getElementById('m-cot-vigencia').value = '15';
+  document.getElementById('m-cot-notas').value = '';
+  oM('m-cot');
+}
+function addCotItem(){
+  const idx = cotLineas.length;
+  cotLineas.push({producto_id:null, descripcion:'', cantidad:1, precio_unitario:0, descuento_pct:0});
+  rCotItems();
+}
+function rCotItems(){
+  document.getElementById('m-cot-items').innerHTML = cotLineas.map((l,i) => `
+    <div style="background:white; padding:10px; margin:5px 0; border-radius:5px; display:grid; grid-template-columns: 1fr 1fr 100px 100px 100px 50px; gap:5px;">
+      <select onchange="cotLineas[${i}].producto_id=this.value; cotLineas[${i}].descripcion=this.options[this.selectedIndex].text;">
+        <option value="">Producto</option>
+        ${DB.productos.map(p => `<option value="${p.id}">${p.nombre}</option>`).join('')}
+      </select>
+      <input type="text" value="${l.descripcion}" onchange="cotLineas[${i}].descripcion=this.value;" placeholder="Descripción">
+      <input type="number" value="${l.cantidad}" onchange="cotLineas[${i}].cantidad=parseFloat(this.value);" min="1" step="0.01">
+      <input type="number" value="${l.precio_unitario}" onchange="cotLineas[${i}].precio_unitario=parseFloat(this.value);" step="0.01">
+      <input type="number" value="${l.descuento_pct}" onchange="cotLineas[${i}].descuento_pct=parseFloat(this.value);" min="0" max="100" step="0.01" placeholder="Desc%">
+      <button class="btn btn-sm" onclick="cotLineas.splice(${i},1); rCotItems();">✕</button>
+    </div>
+  `).join('');
+}
+async function guardarCotizacion(){
+  const cliente_id = document.getElementById('m-cot-cliente').value;
+  if(!cliente_id || cotLineas.length === 0) return alert('Cliente y al menos una línea son obligatorios');
+  const ivaPct = parseFloat(document.getElementById('m-cot-iva').value)||0;
+  const subtotal = cotLineas.reduce((s,l) => s + (l.cantidad * l.precio_unitario * (1 - (l.descuento_pct||0)/100)), 0);
+  const iva = subtotal * (ivaPct/100);
+  const numero = 'COT-' + Date.now().toString(36).toUpperCase();
+  const { data: cot, error } = await SB.from('cotizaciones').insert({
+    numero, cliente_id: parseInt(cliente_id), fecha: new Date().toISOString().split('T')[0],
+    vigencia: new Date(Date.now() + parseInt(document.getElementById('m-cot-vigencia').value||15)*86400000).toISOString().split('T')[0],
+    subtotal, iva, iva_porcentaje: ivaPct, total: subtotal+iva,
+    notas: document.getElementById('m-cot-notas').value, created_by: SESSION.id, estado: 'borrador'
+  }).select('id').single();
+  if(error) return alert('Error: '+error.message);
+  const items = cotLineas.map(l => ({
+    cotizacion_id: cot.id,
+    producto_id: l.producto_id ? parseInt(l.producto_id) : null,
+    descripcion: l.descripcion,
+    cantidad: l.cantidad,
+    precio_unitario: l.precio_unitario,
+    descuento_pct: l.descuento_pct||0,
+    importe: l.cantidad * l.precio_unitario * (1 - (l.descuento_pct||0)/100)
+  }));
+  await SB.from('cotizacion_items').insert(items);
+  cM('m-cot'); await loadAll(); rCotizaciones(); rDashboard();
+}
 async function cambiarEstadoCot(id, estado){
   await SB.from('cotizaciones').update({estado, updated_at: new Date().toISOString()}).eq('id', id);
   await loadAll(); rCotizaciones();
@@ -363,15 +570,15 @@ async function verCot(id){
   const c = DB.cotizaciones.find(x=>x.id===id); if(!c) return;
   const items = DB.cotizacion_items.filter(x=>x.cotizacion_id===id);
   const cli = DB.clientes.find(x=>x.id===c.cliente_id);
-  const { jsPDF } = window.jspdf;
+  const { jsPDF } = window;
   const doc = new jsPDF();
   doc.setFontSize(16); doc.text('COTIZACIÓN '+c.numero,20,20);
   doc.setFontSize(10);
   doc.text('Cliente: '+(cli?cli.razon_social:''),20,30);
   doc.text('Fecha: '+c.fecha,20,36);
   doc.text('Vigencia: '+c.vigencia,20,42);
-  doc.text('Subtotal: $'+c.subtotal+' | IVA: $'+c.iva+' | Total: $'+c.total,20,48);
-  const rows = items.map(i => [i.descripcion||'', i.cantidad, i.precio_unitario, i.descuento_pct+'%', '$'+(i.importe||0)]);
+  doc.text('Subtotal: '+fmt$(c.subtotal)+' | IVA: '+fmt$(c.iva)+' | Total: '+fmt$(c.total),20,48);
+  const rows = items.map(i => [i.descripcion||'', i.cantidad, i.precio_unitario, i.descuento_pct+'%', fmt$(i.importe||0)]);
   doc.autoTable({ head: [['Producto','Cant','P.Unit','Desc%','Importe']], body: rows, startY:55 });
   if(c.notas) doc.text('Notas: '+c.notas,20, doc.lastAutoTable.finalY+10);
   doc.save('Cotizacion_'+c.numero+'.pdf');
@@ -412,17 +619,17 @@ async function guardarMovimiento(){
   cM('m-inv'); await loadAll(); rInventario(); rDashboard();
 }
 
-// ── USUARIOS (solo super_admin) ────────────────────────────
+// ── USUARIOS ───────────────────────────────────────────────
 async function rUsuarios(){
   if (PERFIL.rol !== 'super_admin') return;
-  const { data: perfiles } = await SB.from('perfiles').select('*, usuario:usuario').order('creado_en', {ascending:false});
+  const { data: perfiles } = await SB.from('perfiles').select('*').order('creado_en', {ascending:false});
   document.getElementById('usr-tbody').innerHTML = (perfiles||[]).map(p =>
     `<tr><td>${p.usuario}</td><td>${p.rol==='super_admin'?'<span class="badge" style="background:#1A1916;color:#fff;">Super Admin</span>':'<span class="badge bgr">Usuario</span>'}</td>
     <td>${p.activo ? '<span class="badge bg">Activo</span>' : '<span class="badge br">Inactivo</span>'}</td>
     <td>${p.id !== SESSION.id ? `<button class="btn btn-sm" onclick="toggleUsr('${p.id}', ${!p.activo})">${p.activo?'Desactivar':'Activar'}</button>` : '(tú)'}</td></tr>`
   ).join('') || '<tr><td colspan="4" class="empty">Sin usuarios</td></tr>';
 }
-async function openUsrModal(){
+function openUsrModal(){
   if (PERFIL.rol !== 'super_admin') return;
   document.getElementById('m-usr-nombre').value=''; document.getElementById('m-usr-pass').value=''; oM('m-usr');
 }
@@ -459,13 +666,12 @@ document.getElementById('gen-pass-btn')?.addEventListener('click', ()=>{
 
 // ── INICIALIZACIÓN ─────────────────────────────────────────
 (async function(){
-  // Revisar sesión previa
   const saved = JSON.parse(localStorage.getItem('erp_session')||'null');
   if (saved?.userId) {
     const { data: { user } } = await SB.auth.getUser();
     if (user) {
       SESSION = user;
-      const { data: perfil } = await SB.from('perfiles').select('*').eq('id', user.id).single();
+      const { data: perfil } = await SB.from('perfiles').select('*').eq('id', user.id).single().catch(()=>({data:null}));
       PERFIL = perfil;
       initApp();
       return;
@@ -474,3 +680,6 @@ document.getElementById('gen-pass-btn')?.addEventListener('click', ()=>{
   showScr('scr-unlock');
 })();
 </script>
+
+</body>
+</html>
