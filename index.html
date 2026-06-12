@@ -200,7 +200,11 @@
 // CONFIG
 const SUPABASE_URL = 'https://yknwptsqamvqnoidtmcv.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlrbndwdHNxYW12cW5vaWR0bWN2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEyMTI1NDQsImV4cCI6MjA5Njc4ODU0NH0.bKRKx5nHe_TwWRTG-2TRYe8WJfXn2ZtsL0RQMOJtM7c';
-const SB = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+let SB = null;
+function initSupabase(){
+  if(window.supabase){ SB = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY); return true; }
+  return false;
+}
 let SESSION = null, PERFIL = null;
 let DB = { productos:[], clientes:[], cotizaciones:[], cotizacion_items:[], stock_movimientos:[] };
 let cotLineas = [];
@@ -508,6 +512,12 @@ async function toggleUsr(id,activo){
 
 // INIT
 (async function(){
+  let intentos=0;
+  while(!initSupabase() && intentos<50){ await new Promise(r=>setTimeout(r,100)); intentos++; }
+  if(!SB){
+    document.body.innerHTML='<div style="padding:20px;color:red;"><h2>Error</h2><p>No se pudo cargar Supabase. Verifica tu conexión y recarga.</p></div>';
+    return;
+  }
   const saved=JSON.parse(localStorage.getItem('erp_session')||'null');
   if(saved?.userId){
     try{
