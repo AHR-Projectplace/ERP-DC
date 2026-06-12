@@ -238,8 +238,17 @@ async function doUnlock(){
     return;
   }
   document.getElementById('ue-err').classList.remove('show');
-  const {data: perfiles} = await SB.from('perfiles').select('id').limit(1);
-  showScr((perfiles&&perfiles.length)?'scr-login':'scr-setup');
+  if(!SB){
+    alert('Conectando con la base de datos, intenta de nuevo en unos segundos.');
+    return;
+  }
+  try{
+    const {data: perfiles, error} = await SB.from('perfiles').select('id').limit(1);
+    if(error){ alert('Error Supabase: '+error.message); return; }
+    showScr((perfiles&&perfiles.length)?'scr-login':'scr-setup');
+  }catch(e){
+    alert('Error: '+e.message);
+  }
 }
 
 async function doSetup(){
