@@ -298,15 +298,23 @@
 
 <script>
 // ── CONFIGURACIÓN ──────────────────────────────────────────
-const SUPABASE_URL = 'https://yknwptsqamvqnoidtmcv.supabase.co';
-const SUPABASE_KEY = 'sb_publishable_YxtAYV_g4kffir5jyQMnYQ_-_D_Ulvo';
-'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImR1anhsd2R3cW92dHdjbWZiZ3FxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MDA1MDAxMDUsImV4cCI6MjAxNjA3NjEwNX0.placeholder_key';
+const SUPABASE_URL = 'https://dujxlwdwqovtwcmfbgqq.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImR1anhsd2R3cW92dHdjbWZiZ3FxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MDA1MDAxMDUsImV4cCI6MjAxNjA3NjEwNX0.placeholder_key';
 const DEFAULT_CODE = 'ERP2025!';
-let SB = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+let SB = null;
 let SESSION = null;
 let PERFIL = null;
 let DB = { productos:[], clientes:[], cotizaciones:[], cotizacion_items:[], stock_movimientos:[] };
 let cotLineas = [];
+
+// Esperar a que Supabase esté disponible
+function initSupabase(){
+  if(window.supabase){
+    SB = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+    return true;
+  }
+  return false;
+}
 
 // ── UTILIDADES ─────────────────────────────────────────────
 function showScr(id){
@@ -666,6 +674,18 @@ document.getElementById('gen-pass-btn')?.addEventListener('click', ()=>{
 
 // ── INICIALIZACIÓN ─────────────────────────────────────────
 (async function(){
+  // Esperar a que Supabase esté disponible
+  let intentos = 0;
+  while(!initSupabase() && intentos < 50){
+    await new Promise(r => setTimeout(r, 100));
+    intentos++;
+  }
+  
+  if(!SB){
+    document.body.innerHTML = '<div style="padding:20px; color:red;"><h2>Error</h2><p>No se pudo cargar Supabase. Verifica tu conexión y recarga.</p></div>';
+    return;
+  }
+
   const saved = JSON.parse(localStorage.getItem('erp_session')||'null');
   if (saved?.userId) {
     const { data: { user } } = await SB.auth.getUser();
