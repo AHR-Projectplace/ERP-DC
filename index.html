@@ -24,7 +24,7 @@
     .btn-primary{background:#667eea;color:white;width:100%;margin-top:10px;}
     .btn-primary:hover{background:#5568d3;}
     .btn-sm{padding:5px 10px;font-size:12px;}
-    .btn-danger{background:#e74c3c;color:white;border:none;border-radius:3px;cursor:pointer;}
+    .btn-danger{background:#e74c3c;color:white;border:none;border-radius:3px;cursor:pointer;padding:5px 10px;}
     .alert{padding:10px;border-radius:5px;margin-top:10px;display:none;}
     .alert.show{display:block;}
     .alert-danger{background:#fee;color:#c33;border:1px solid #fcc;}
@@ -61,7 +61,6 @@
 </head>
 <body>
 
-<!-- PANTALLA DE DESBLOQUEO -->
 <div id="scr-unlock" class="scr active">
   <div class="auth-card">
     <h2>🔐 Acceso ERP</h2>
@@ -75,7 +74,6 @@
   </div>
 </div>
 
-<!-- PANTALLA DE CONFIGURACIÓN INICIAL -->
 <div id="scr-setup" class="scr">
   <div class="auth-card">
     <h2>⚙️ Crear Admin</h2>
@@ -87,7 +85,6 @@
   </div>
 </div>
 
-<!-- PANTALLA DE LOGIN -->
 <div id="scr-login" class="scr">
   <div class="auth-card">
     <h2>🔑 Iniciar Sesión</h2>
@@ -99,7 +96,6 @@
   </div>
 </div>
 
-<!-- APLICACIÓN -->
 <div id="app">
   <div class="navbar">
     <h1>📊 ERP Comercializadora</h1>
@@ -157,13 +153,23 @@
   </div>
 </div>
 
-<!-- MODALES -->
 <div id="m-prod" class="modal"><div class="modal-content">
   <div class="modal-header"><h3>Producto</h3><button class="modal-close" onclick="cM('m-prod')">×</button></div>
   <div class="form-group"><label>Nombre *</label><input type="text" id="m-prod-nombre"></div>
-  <div class="form-group"><label>Precio Venta *</label><input type="number" id="m-prod-precio" step="0.01"></div>
-  <div class="form-group"><label>Stock</label><input type="number" id="m-prod-stock" value="0"></div>
-  <button class="btn btn-primary" onclick="guardarProducto()">Guardar</button>
+  <div class="form-group"><label>Precio Venta Base *</label><input type="number" id="m-prod-precio" step="0.01"></div>
+  <div class="form-group"><label>Stock Inicial</label><input type="number" id="m-prod-stock" value="0"></div>
+  
+  <div class="form-group" style="border-top:1px solid #ddd; padding-top:15px; margin-top:15px;">
+    <label>Constructor Dinámico de Especificaciones</label>
+    <div id="m-prod-specs-list" style="margin-bottom:10px; font-size:14px; background:#f9f9f9; padding:10px; border-radius:4px;"></div>
+    <div style="display:flex; gap:10px; align-items:center;">
+      <input type="text" id="m-prod-spec-key" placeholder="Ej. Diámetro" style="flex:1;">
+      <input type="text" id="m-prod-spec-val" placeholder="Ej. 2 pulgadas" style="flex:1;">
+      <button class="btn btn-primary" style="margin-top:0; width:auto;" onclick="addProdSpec()">Añadir</button>
+    </div>
+  </div>
+  
+  <button class="btn btn-primary" onclick="guardarProducto()">Guardar Producto</button>
 </div></div>
 
 <div id="m-cli" class="modal"><div class="modal-content">
@@ -201,13 +207,8 @@
 </div></div>
 
 <script>
-// ── DEBUG: mostrar cualquier error en pantalla ──────────────
-window.addEventListener('error', function(e){
-  mostrarErrorDebug('JS Error: ' + e.message + ' (línea ' + e.lineno + ')');
-});
-window.addEventListener('unhandledrejection', function(e){
-  mostrarErrorDebug('Promise Error: ' + (e.reason?.message || e.reason));
-});
+window.addEventListener('error', function(e){ mostrarErrorDebug('JS Error: ' + e.message + ' (línea ' + e.lineno + ')'); });
+window.addEventListener('unhandledrejection', function(e){ mostrarErrorDebug('Promise Error: ' + (e.reason?.message || e.reason)); });
 function mostrarErrorDebug(msg){
   let box = document.getElementById('debug-box');
   if(!box){
@@ -231,11 +232,12 @@ let SESSION = null, PERFIL = null;
 let DB = { productos:[], clientes:[], cotizaciones:[], cotizacion_items:[], stock_movimientos:[] };
 let cotLineas = [];
 
+// ESTADO MVP 2: Constructor Dinámico
+let currentProdId = null;
+let currentProdSpecs = {};
+
 // UTILS
-function showScr(id){
-  document.querySelectorAll('.scr').forEach(s=>s.classList.remove('active'));
-  document.getElementById(id).classList.add('active');
-}
+function showScr(id){ document.querySelectorAll('.scr').forEach(s=>s.classList.remove('active')); document.getElementById(id).classList.add('active'); }
 function cM(id){document.getElementById(id).classList.remove('open');}
 function oM(id){document.getElementById(id).classList.add('open');}
 function fmt$(n){return '$'+Number(n||0).toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2});}
@@ -255,34 +257,18 @@ function sv(id){
 // AUTH
 async function doUnlock(){
   const code = document.getElementById('ue-code').value.trim();
-  if(code !== 'ERP2025!'){
-    document.getElementById('ue-err').textContent='Código incorrecto';
-    document.getElementById('ue-err').classList.add('show');
-    return;
-  }
+  if(code !== 'ERP2025!'){ document.getElementById('ue-err').textContent='Código incorrecto'; document.getElementById('ue-err').classList.add('show'); return; }
   document.getElementById('ue-err').classList.remove('show');
-  if(!SB){
-    document.getElementById('ue-err').textContent='Supabase no está listo todavía (revisa tu conexión / la franja roja de error abajo si aparece).';
-    document.getElementById('ue-err').classList.add('show');
-    return;
-  }
+  if(!SB){ document.getElementById('ue-err').textContent='Supabase no está listo todavía.'; document.getElementById('ue-err').classList.add('show'); return; }
   const {data: perfiles, error} = await SB.from('perfiles').select('id').limit(1);
-  if(error){
-    document.getElementById('ue-err').textContent='Error Supabase: '+error.message;
-    document.getElementById('ue-err').classList.add('show');
-    return;
-  }
+  if(error){ document.getElementById('ue-err').textContent='Error Supabase: '+error.message; document.getElementById('ue-err').classList.add('show'); return; }
   showScr((perfiles&&perfiles.length)?'scr-login':'scr-setup');
 }
 
 async function doSetup(){
   const usuario = document.getElementById('su-user').value.trim();
   const pass = document.getElementById('su-pass').value;
-  if(!usuario||pass!==document.getElementById('su-pass2').value||pass.length<8){
-    document.getElementById('su-err').textContent='Verifica los datos (mín 8 caracteres)';
-    document.getElementById('su-err').classList.add('show');
-    return;
-  }
+  if(!usuario||pass!==document.getElementById('su-pass2').value||pass.length<8){ document.getElementById('su-err').textContent='Verifica los datos (mín 8 caracteres)'; document.getElementById('su-err').classList.add('show'); return; }
   const {data,error} = await SB.auth.signUp({email:usuario+'@erp.local',password:pass});
   if(error){document.getElementById('su-err').textContent=error.message;document.getElementById('su-err').classList.add('show');return;}
   await SB.from('perfiles').insert({id:data.user.id,usuario,rol:'super_admin',activo:true});
@@ -297,7 +283,7 @@ async function doLogin(){
   const pass = document.getElementById('lg-pass').value;
   if(!usuario||!pass){document.getElementById('lg-err').textContent='Ingresa usuario y contraseña';document.getElementById('lg-err').classList.add('show');return;}
   const {data,error} = await SB.auth.signInWithPassword({email:usuario+'@erp.local',password:pass});
-  if(error){document.getElementById('lg-err').textContent='Error: '+error.message;document.getElementById('lg-err').classList.add('show');console.error(error);return;}
+  if(error){document.getElementById('lg-err').textContent='Error: '+error.message;document.getElementById('lg-err').classList.add('show');return;}
   SESSION=data.user;
   const {data:perfil}=await SB.from('perfiles').select('*').eq('id',SESSION.id).single();
   PERFIL=perfil;
@@ -350,26 +336,83 @@ function rDashboard(){
   document.getElementById('db-acepta').textContent=cotsMes.filter(c=>c.estado==='aceptada').length;
 }
 
-// PRODUCTOS
+// PRODUCTOS MVP 2
 function rProductos(){
   document.getElementById('prod-tbody').innerHTML=DB.productos.map(p=>
     `<tr><td>${p.nombre}</td><td>${fmt$(p.precio_venta)}</td><td>${p.stock_actual}</td><td><button class="btn-sm btn-primary" onclick="editProd(${p.id})">Editar</button></td></tr>`
   ).join('')||'<tr><td colspan="4" class="empty">Sin productos</td></tr>';
 }
+
 function openProdModal(id){
-  ['m-prod-nombre','m-prod-precio','m-prod-stock'].forEach(k=>document.getElementById(k).value='');
+  currentProdId = id || null;
+  currentProdSpecs = {};
+  
+  ['m-prod-nombre','m-prod-precio','m-prod-stock','m-prod-spec-key','m-prod-spec-val'].forEach(k=>document.getElementById(k).value='');
   document.getElementById('m-prod-stock').value='0';
-  if(id){const p=DB.productos.find(x=>x.id===id);if(p){document.getElementById('m-prod-nombre').value=p.nombre;document.getElementById('m-prod-precio').value=p.precio_venta;document.getElementById('m-prod-stock').value=p.stock_actual;}}
+  document.getElementById('m-prod-stock').disabled = id ? true : false; 
+  
+  if(id){
+    const p=DB.productos.find(x=>x.id===id);
+    if(p){
+      document.getElementById('m-prod-nombre').value=p.nombre;
+      document.getElementById('m-prod-precio').value=p.precio_venta;
+      document.getElementById('m-prod-stock').value=p.stock_actual;
+      currentProdSpecs = p.especificaciones || {};
+    }
+  }
+  renderProdSpecs();
   oM('m-prod');
 }
+
+function addProdSpec(){
+  const k = document.getElementById('m-prod-spec-key').value.trim();
+  const v = document.getElementById('m-prod-spec-val').value.trim();
+  if(k && v){
+    currentProdSpecs[k] = v;
+    document.getElementById('m-prod-spec-key').value = '';
+    document.getElementById('m-prod-spec-val').value = '';
+    renderProdSpecs();
+  }
+}
+
+function removeProdSpec(k){
+  delete currentProdSpecs[k];
+  renderProdSpecs();
+}
+
+function renderProdSpecs(){
+  const box = document.getElementById('m-prod-specs-list');
+  const keys = Object.keys(currentProdSpecs);
+  if(keys.length === 0){ box.innerHTML = '<span class="empty" style="padding:5px;">Sin especificaciones</span>'; return; }
+  box.innerHTML = keys.map(k => `<div style="display:flex; justify-content:space-between; margin-bottom:5px; border-bottom:1px solid #ddd; padding-bottom:5px;"><span><b>${k}:</b> ${currentProdSpecs[k]}</span> <button class="btn-danger btn-sm" onclick="removeProdSpec('${k}')">×</button></div>`).join('');
+}
+
 async function guardarProducto(){
   const nombre=document.getElementById('m-prod-nombre').value.trim();
   const precio=parseFloat(document.getElementById('m-prod-precio').value)||0;
   const stock=parseInt(document.getElementById('m-prod-stock').value)||0;
-  if(!nombre||precio<=0)return alert('Nombre y precio obligatorios');
-  await SB.from('productos').insert({nombre,precio_venta:precio,stock_actual:stock,costo:0,stock_minimo:5});
-  cM('m-prod');await loadAll();rProductos();
+  if(!nombre||precio<=0)return alert('Nombre y precio base obligatorios');
+  
+  const payload = {
+    nombre, 
+    precio_venta: precio, 
+    especificaciones: currentProdSpecs
+  };
+
+  if(currentProdId){
+    await SB.from('productos').update(payload).eq('id', currentProdId);
+  } else {
+    payload.stock_actual = stock;
+    payload.costo = 0;
+    payload.stock_minimo = 5;
+    await SB.from('productos').insert(payload);
+  }
+  
+  cM('m-prod');
+  await loadAll();
+  rProductos();
 }
+
 function editProd(id){openProdModal(id);}
 
 // CLIENTES
