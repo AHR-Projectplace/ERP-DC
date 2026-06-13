@@ -25,6 +25,7 @@
     .btn-primary:hover{background:#5568d3;}
     .btn-sm{padding:5px 10px;font-size:12px;}
     .btn-danger{background:#e74c3c;color:white;border:none;border-radius:3px;cursor:pointer;padding:5px 10px;}
+    .btn-secondary{background:#95a5a6;color:white;}
     .alert{padding:10px;border-radius:5px;margin-top:10px;display:none;}
     .alert.show{display:block;}
     .alert-danger{background:#fee;color:#c33;border:1px solid #fcc;}
@@ -50,13 +51,15 @@
     .bg{background:#d4edda;color:#155724;}.ba{background:#cfe2ff;color:#084298;}.br{background:#f8d7da;color:#842029;}.bgr{background:#e2e3e5;color:#383d41;}
     .modal{display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);align-items:center;justify-content:center;z-index:1000;}
     .modal.open{display:flex;}
-    .modal-content{background:white;padding:30px;border-radius:10px;width:90%;max-width:600px;max-height:80vh;overflow-y:auto;}
+    .modal-content{background:white;padding:30px;border-radius:10px;width:90%;max-width:650px;max-height:90vh;overflow-y:auto;}
     .modal-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;}
     .modal-close{background:none;border:none;font-size:24px;cursor:pointer;color:#999;}
     .empty{text-align:center;color:#999;padding:20px;}
     .card{background:white;padding:20px;border-radius:8px;box-shadow:0 2px 4px rgba(0,0,0,0.1);margin-bottom:20px;}
     .card-title{font-size:18px;font-weight:bold;margin-bottom:10px;}
     .card-value{font-size:32px;font-weight:bold;color:#667eea;}
+    .section-divider{border-top:1px solid #ddd;padding-top:15px;margin-top:15px;}
+    .flex-row-gap{display:flex;gap:10px;align-items:center;}
   </style>
 </head>
 <body>
@@ -124,8 +127,8 @@
       </div>
       <div id="vw-productos" class="vw">
         <h2>Productos</h2>
-        <button class="btn btn-primary" style="width:auto;" onclick="openProdModal()">+ Nuevo Producto</button>
-        <table><thead><tr><th>Nombre</th><th>Precio</th><th>Stock</th><th></th></tr></thead><tbody id="prod-tbody"></tbody></table>
+        <button class="btn btn-primary" style="width:auto;" onclick="openProdModal()">+ Nuevo Producto / Variante</button>
+        <table><thead><tr><th>SKU</th><th>Nombre / Variante</th><th>Precio Base</th><th>Stock</th><th>Acciones</th></tr></thead><tbody id="prod-tbody"></tbody></table>
       </div>
       <div id="vw-clientes" class="vw">
         <h2>Clientes</h2>
@@ -142,7 +145,7 @@
         <h2>Inventario</h2>
         <button class="btn btn-primary" style="width:auto;" onclick="openInvModal()">+ Movimiento</button>
         <select id="inv-prod" onchange="rInventario()" style="padding:8px;margin-left:10px;"><option value="">Todos</option></select>
-        <table><thead><tr><th>Fecha</th><th>Producto</th><th>Tipo</th><th>Cantidad</th></tr></thead><tbody id="inv-tbody"></tbody></table>
+        <table><thead><tr><th>Fecha</th><th>SKU</th><th>Producto</th><th>Tipo</th><th>Cantidad</th></tr></thead><tbody id="inv-tbody"></tbody></table>
       </div>
       <div id="vw-usuarios" class="vw">
         <h2>Usuarios</h2>
@@ -154,22 +157,36 @@
 </div>
 
 <div id="m-prod" class="modal"><div class="modal-content">
-  <div class="modal-header"><h3>Producto</h3><button class="modal-close" onclick="cM('m-prod')">×</button></div>
-  <div class="form-group"><label>Nombre *</label><input type="text" id="m-prod-nombre"></div>
+  <div class="modal-header"><h3 id="m-prod-title">Producto Industrial</h3><button class="modal-close" onclick="cM('m-prod')">×</button></div>
+  <div class="form-group"><label>SKU Único *</label><input type="text" id="m-prod-sku" placeholder="Ej. TUB-AL-2X6"></div>
+  <div class="form-group"><label>Nombre / Variante *</label><input type="text" id="m-prod-nombre" placeholder="Ej. Tubo de Aluminio Estructural"></div>
   <div class="form-group"><label>Precio Venta Base *</label><input type="number" id="m-prod-precio" step="0.01"></div>
   <div class="form-group"><label>Stock Inicial</label><input type="number" id="m-prod-stock" value="0"></div>
   
-  <div class="form-group" style="border-top:1px solid #ddd; padding-top:15px; margin-top:15px;">
-    <label>Constructor Dinámico de Especificaciones</label>
+  <div class="section-divider">
+    <label>Asignación de Precios por Lista Comercial</label>
+    <div id="m-prod-prices-list" style="margin-bottom:10px; font-size:14px; background:#f9f9f9; padding:10px; border-radius:4px;"></div>
+    <div class="flex-row-gap">
+      <input type="text" id="m-prod-price-listname" placeholder="Ej. VIP, Distribuidor" style="flex:1;">
+      <input type="number" id="m-prod-price-val" placeholder="Precio ($)" step="0.01" style="flex:1;">
+      <button class="btn btn-primary" style="margin-top:0; width:auto;" onclick="addProdPriceList()">Vincular</button>
+    </div>
+  </div>
+
+  <div class="section-divider">
+    <label>Especificaciones Técnicas de la Variante</label>
     <div id="m-prod-specs-list" style="margin-bottom:10px; font-size:14px; background:#f9f9f9; padding:10px; border-radius:4px;"></div>
-    <div style="display:flex; gap:10px; align-items:center;">
-      <input type="text" id="m-prod-spec-key" placeholder="Ej. Diámetro" style="flex:1;">
-      <input type="text" id="m-prod-spec-val" placeholder="Ej. 2 pulgadas" style="flex:1;">
+    <div class="flex-row-gap">
+      <input type="text" id="m-prod-spec-key" placeholder="Ej. Medida" style="flex:1;">
+      <input type="text" id="m-prod-spec-val" placeholder="Ej. 2x6 metros" style="flex:1;">
       <button class="btn btn-primary" style="margin-top:0; width:auto;" onclick="addProdSpec()">Añadir</button>
     </div>
   </div>
   
-  <button class="btn btn-primary" onclick="guardarProducto()">Guardar Producto</button>
+  <div style="display:flex; justify-content:space-between; margin-top:20px; gap:10px;">
+    <button id="btn-eliminar-prod" class="btn btn-danger" style="display:none;" onclick="eliminarProducto()">Eliminar Producto</button>
+    <button class="btn btn-primary" style="margin-top:0; flex:1;" onclick="guardarProducto()">Guardar Cambios</button>
+  </div>
 </div></div>
 
 <div id="m-cli" class="modal"><div class="modal-content">
@@ -220,7 +237,6 @@ function mostrarErrorDebug(msg){
   box.textContent += msg + '\n';
 }
 
-// CONFIG
 const SUPABASE_URL = 'https://yknwptsqamvqnoidtmcv.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlrbndwdHNxYW12cW5vaWR0bWN2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEyMTI1NDQsImV4cCI6MjA5Njc4ODU0NH0.bKRKx5nHe_TwWRTG-2TRYe8WJfXn2ZtsL0RQMOJtM7c';
 let SB = null;
@@ -229,14 +245,13 @@ function initSupabase(){
   return false;
 }
 let SESSION = null, PERFIL = null;
-let DB = { productos:[], clientes:[], cotizaciones:[], cotizacion_items:[], stock_movimientos:[] };
+let DB = { productos:[], clientes:[], cotizaciones:[], cotizacion_items:[], stock_movimientos:[], producto_precios:[] };
 let cotLineas = [];
 
-// ESTADO MVP 2: Constructor Dinámico
 let currentProdId = null;
 let currentProdSpecs = {};
+let currentProdPrices = {}; 
 
-// UTILS
 function showScr(id){ document.querySelectorAll('.scr').forEach(s=>s.classList.remove('active')); document.getElementById(id).classList.add('active'); }
 function cM(id){document.getElementById(id).classList.remove('open');}
 function oM(id){document.getElementById(id).classList.add('open');}
@@ -246,15 +261,14 @@ function sv(id){
   document.querySelectorAll('.ntb').forEach(t=>t.classList.remove('active'));
   document.getElementById('vw-'+id).classList.add('active');
   event.target.classList.add('active');
-  if(id==='dashboard')rDashboard();
-  if(id==='productos')rProductos();
-  if(id==='clientes')rClientes();
-  if(id==='cotizaciones')rCotizaciones();
-  if(id==='inventario')rInventario();
-  if(id==='usuarios'&&PERFIL?.rol==='super_admin')rUsuarios();
+  if(id==='dashboard') rDashboard();
+  if(id==='productos') rProductos();
+  if(id==='clientes') rClientes();
+  if(id==='cotizaciones') rCotizaciones();
+  if(id==='inventario') rInventario();
+  if(id==='usuarios'&&PERFIL?.rol==='super_admin') rUsuarios();
 }
 
-// AUTH
 async function doUnlock(){
   const code = document.getElementById('ue-code').value.trim();
   if(code !== 'ERP2025!'){ document.getElementById('ue-err').textContent='Código incorrecto'; document.getElementById('ue-err').classList.add('show'); return; }
@@ -305,313 +319,4 @@ async function initApp(){
   r.className='badge '+(PERFIL.rol==='super_admin'?'bg':'bgr');
   document.getElementById('nb-usuarios').style.display=PERFIL.rol==='super_admin'?'':'none';
   document.querySelectorAll('.scr').forEach(s=>s.classList.remove('active'));
-  document.getElementById('app').classList.add('active');
-  await loadAll();
-  rDashboard();
-}
-
-// DATA
-async function loadAll(){
-  const [prod,cli,cot,items,movs]=await Promise.all([
-    SB.from('productos').select('*').order('nombre'),
-    SB.from('clientes').select('*').order('razon_social'),
-    SB.from('cotizaciones').select('*').order('created_at',{ascending:false}),
-    SB.from('cotizacion_items').select('*'),
-    SB.from('stock_movimientos').select('*').order('created_at',{ascending:false})
-  ]);
-  DB.productos=prod.data||[];
-  DB.clientes=cli.data||[];
-  DB.cotizaciones=cot.data||[];
-  DB.cotizacion_items=items.data||[];
-  DB.stock_movimientos=movs.data||[];
-}
-
-// DASHBOARD
-function rDashboard(){
-  const mes=new Date().toISOString().slice(0,7);
-  const cotsMes=DB.cotizaciones.filter(c=>c.created_at&&c.created_at.startsWith(mes));
-  const tot=cotsMes.reduce((s,c)=>s+Number(c.total||0),0);
-  document.getElementById('db-cot-mes').textContent=cotsMes.length;
-  document.getElementById('db-total').textContent=fmt$(tot);
-  document.getElementById('db-acepta').textContent=cotsMes.filter(c=>c.estado==='aceptada').length;
-}
-
-// PRODUCTOS MVP 2
-function rProductos(){
-  document.getElementById('prod-tbody').innerHTML=DB.productos.map(p=>
-    `<tr><td>${p.nombre}</td><td>${fmt$(p.precio_venta)}</td><td>${p.stock_actual}</td><td><button class="btn-sm btn-primary" onclick="editProd(${p.id})">Editar</button></td></tr>`
-  ).join('')||'<tr><td colspan="4" class="empty">Sin productos</td></tr>';
-}
-
-function openProdModal(id){
-  currentProdId = id || null;
-  currentProdSpecs = {};
-  
-  ['m-prod-nombre','m-prod-precio','m-prod-stock','m-prod-spec-key','m-prod-spec-val'].forEach(k=>document.getElementById(k).value='');
-  document.getElementById('m-prod-stock').value='0';
-  document.getElementById('m-prod-stock').disabled = id ? true : false; 
-  
-  if(id){
-    const p=DB.productos.find(x=>x.id===id);
-    if(p){
-      document.getElementById('m-prod-nombre').value=p.nombre;
-      document.getElementById('m-prod-precio').value=p.precio_venta;
-      document.getElementById('m-prod-stock').value=p.stock_actual;
-      currentProdSpecs = p.especificaciones || {};
-    }
-  }
-  renderProdSpecs();
-  oM('m-prod');
-}
-
-function addProdSpec(){
-  const k = document.getElementById('m-prod-spec-key').value.trim();
-  const v = document.getElementById('m-prod-spec-val').value.trim();
-  if(k && v){
-    currentProdSpecs[k] = v;
-    document.getElementById('m-prod-spec-key').value = '';
-    document.getElementById('m-prod-spec-val').value = '';
-    renderProdSpecs();
-  }
-}
-
-function removeProdSpec(k){
-  delete currentProdSpecs[k];
-  renderProdSpecs();
-}
-
-function renderProdSpecs(){
-  const box = document.getElementById('m-prod-specs-list');
-  const keys = Object.keys(currentProdSpecs);
-  if(keys.length === 0){ box.innerHTML = '<span class="empty" style="padding:5px;">Sin especificaciones</span>'; return; }
-  box.innerHTML = keys.map(k => `<div style="display:flex; justify-content:space-between; margin-bottom:5px; border-bottom:1px solid #ddd; padding-bottom:5px;"><span><b>${k}:</b> ${currentProdSpecs[k]}</span> <button class="btn-danger btn-sm" onclick="removeProdSpec('${k}')">×</button></div>`).join('');
-}
-
-async function guardarProducto(){
-  const nombre=document.getElementById('m-prod-nombre').value.trim();
-  const precio=parseFloat(document.getElementById('m-prod-precio').value)||0;
-  const stock=parseInt(document.getElementById('m-prod-stock').value)||0;
-  if(!nombre||precio<=0)return alert('Nombre y precio base obligatorios');
-  
-  const payload = {
-    nombre, 
-    precio_venta: precio, 
-    especificaciones: currentProdSpecs
-  };
-
-  if(currentProdId){
-    await SB.from('productos').update(payload).eq('id', currentProdId);
-  } else {
-    payload.stock_actual = stock;
-    payload.costo = 0;
-    payload.stock_minimo = 5;
-    await SB.from('productos').insert(payload);
-  }
-  
-  cM('m-prod');
-  await loadAll();
-  rProductos();
-}
-
-function editProd(id){openProdModal(id);}
-
-// CLIENTES
-function rClientes(){
-  document.getElementById('cli-tbody').innerHTML=DB.clientes.map(c=>
-    `<tr><td>${c.razon_social}</td><td>${c.rfc||'-'}</td><td>${c.email||'-'}</td><td><button class="btn-sm btn-primary" onclick="editCli(${c.id})">Editar</button></td></tr>`
-  ).join('')||'<tr><td colspan="4" class="empty">Sin clientes</td></tr>';
-}
-function openCliModal(id){
-  ['m-cli-rs','m-cli-rfc','m-cli-email'].forEach(k=>document.getElementById(k).value='');
-  if(id){const c=DB.clientes.find(x=>x.id===id);if(c){document.getElementById('m-cli-rs').value=c.razon_social;document.getElementById('m-cli-rfc').value=c.rfc||'';document.getElementById('m-cli-email').value=c.email||'';}}
-  oM('m-cli');
-}
-async function guardarCliente(){
-  const rs=document.getElementById('m-cli-rs').value.trim();
-  const rfc=document.getElementById('m-cli-rfc').value.trim();
-  const email=document.getElementById('m-cli-email').value.trim();
-  if(!rs||!rfc)return alert('Razón Social y RFC obligatorios');
-  await SB.from('clientes').insert({razon_social:rs,rfc,email,lista_precios:'general'});
-  cM('m-cli');await loadAll();rClientes();
-}
-function editCli(id){openCliModal(id);}
-
-// COTIZACIONES
-function rCotizaciones(){
-  const f=document.getElementById('cot-filtro').value;
-  const lista=f?DB.cotizaciones.filter(c=>c.estado===f):DB.cotizaciones;
-  document.getElementById('cot-tbody').innerHTML=lista.map(c=>{
-    const cli=DB.clientes.find(x=>x.id===c.cliente_id);
-    const badge=c.estado==='aceptada'?'bg':c.estado==='enviada'?'ba':c.estado==='rechazada'?'br':'bgr';
-    return `<tr><td>${c.numero}</td><td>${cli?cli.razon_social:'-'}</td><td>${fmt$(c.total)}</td><td><span class="badge ${badge}">${c.estado}</span></td>
-    <td><button class="btn-sm btn-primary" onclick="verCot(${c.id})">PDF</button>
-    ${PERFIL?.rol==='super_admin'||c.created_by===SESSION?.id?`<button class="btn-sm" onclick="cambiarEstadoCot(${c.id},'${c.estado==='borrador'?'enviada':c.estado==='enviada'?'aceptada':'borrador'}')">Cambiar</button>`:''}</td></tr>`;
-  }).join('')||'<tr><td colspan="5" class="empty">Sin cotizaciones</td></tr>';
-}
-function openCotModal(){
-  cotLineas=[];
-  const sel=document.getElementById('m-cot-cliente');
-  sel.innerHTML='<option value="">Selecciona...</option>';
-  DB.clientes.forEach(c=>sel.innerHTML+=`<option value="${c.id}">${c.razon_social}</option>`);
-  document.getElementById('m-cot-items').innerHTML='';
-  document.getElementById('m-cot-iva').value='16';
-  document.getElementById('cot-total').textContent='$0.00';
-  oM('m-cot');
-}
-function addCotItem(){
-  cotLineas.push({producto_id:'',descripcion:'',cantidad:1,precio_unitario:0,descuento_pct:0});
-  rCotItems();
-}
-function rCotItems(){
-  document.getElementById('m-cot-items').innerHTML=cotLineas.map((l,i)=>`
-    <div style="display:flex;gap:5px;margin-bottom:5px;align-items:center;">
-      <select onchange="cotLineas[${i}].producto_id=this.value;cotLineas[${i}].descripcion=this.options[this.selectedIndex].text;cotCalcTotal()" style="flex:1;">
-        <option value="">Producto</option>
-        ${DB.productos.map(p=>`<option value="${p.id}">${p.nombre}</option>`).join('')}
-      </select>
-      <input type="number" value="${l.cantidad}" onchange="cotLineas[${i}].cantidad=parseFloat(this.value)||1;cotCalcTotal()" min="1" style="width:70px;">
-      <input type="number" value="${l.precio_unitario}" onchange="cotLineas[${i}].precio_unitario=parseFloat(this.value)||0;cotCalcTotal()" step="0.01" style="width:100px;">
-      <button class="btn-danger" onclick="cotLineas.splice(${i},1);rCotItems();cotCalcTotal()">×</button>
-    </div>
-  `).join('');
-  cotCalcTotal();
-}
-function cotCalcTotal(){
-  const subtotal=cotLineas.reduce((s,l)=>s+(l.cantidad*l.precio_unitario*(1-(l.descuento_pct||0)/100)),0);
-  const ivaPct=parseFloat(document.getElementById('m-cot-iva').value)||0;
-  const total=subtotal*(1+ivaPct/100);
-  document.getElementById('cot-total').textContent=fmt$(total);
-}
-async function guardarCotizacion(){
-  const cliente_id=document.getElementById('m-cot-cliente').value;
-  if(!cliente_id||cotLineas.length===0)return alert('Cliente y al menos una línea obligatorios');
-  const ivaPct=parseFloat(document.getElementById('m-cot-iva').value)||0;
-  const subtotal=cotLineas.reduce((s,l)=>s+(l.cantidad*l.precio_unitario*(1-(l.descuento_pct||0)/100)),0);
-  const iva=subtotal*ivaPct/100;
-  const numero='COT-'+Date.now().toString(36).toUpperCase().slice(-6);
-  const {data:cot,error}=await SB.from('cotizaciones').insert({
-    numero,cliente_id:parseInt(cliente_id),fecha:new Date().toISOString().split('T')[0],
-    vigencia:new Date(Date.now()+15*86400000).toISOString().split('T')[0],
-    subtotal,iva,iva_porcentaje:ivaPct,total:subtotal+iva,
-    created_by:SESSION.id,estado:'borrador'
-  }).select('id').single();
-  if(error)return alert('Error: '+error.message);
-  const items=cotLineas.map(l=>({
-    cotizacion_id:cot.id,
-    producto_id:l.producto_id?parseInt(l.producto_id):null,
-    descripcion:l.descripcion,cantidad:l.cantidad,
-    precio_unitario:l.precio_unitario,descuento_pct:l.descuento_pct||0,
-    importe:l.cantidad*l.precio_unitario*(1-(l.descuento_pct||0)/100)
-  }));
-  await SB.from('cotizacion_items').insert(items);
-  cM('m-cot');await loadAll();rCotizaciones();rDashboard();
-}
-async function cambiarEstadoCot(id,estado){
-  await SB.from('cotizaciones').update({estado,updated_at:new Date().toISOString()}).eq('id',id);
-  await loadAll();rCotizaciones();
-}
-async function verCot(id){
-  const c=DB.cotizaciones.find(x=>x.id===id);if(!c)return;
-  const items=DB.cotizacion_items.filter(x=>x.cotizacion_id===id);
-  const cli=DB.clientes.find(x=>x.id===c.cliente_id);
-  const doc=new jspdf.jsPDF();
-  doc.setFontSize(16);doc.text('COTIZACIÓN '+c.numero,20,20);
-  doc.setFontSize(10);
-  doc.text('Cliente: '+(cli?cli.razon_social:''),20,30);
-  doc.text('Fecha: '+c.fecha+' | Vigencia: '+c.vigencia,20,36);
-  doc.text('Subtotal: '+fmt$(c.subtotal)+' | IVA: '+fmt$(c.iva)+' | Total: '+fmt$(c.total),20,42);
-  const rows=items.map(i=>[i.descripcion||'',i.cantidad,fmt$(i.precio_unitario),i.descuento_pct+'%',fmt$(i.importe||0)]);
-  doc.autoTable({head:[['Producto','Cant','P.Unit','Desc%','Importe']],body:rows,startY:50});
-  doc.save('Cotizacion_'+c.numero+'.pdf');
-}
-
-// INVENTARIO
-function rInventario(){
-  const pid=document.getElementById('inv-prod').value;
-  const lista=pid?DB.stock_movimientos.filter(m=>m.producto_id==parseInt(pid)):DB.stock_movimientos;
-  const sel=document.getElementById('inv-prod');
-  sel.innerHTML='<option value="">Todos</option>';
-  DB.productos.forEach(p=>sel.innerHTML+=`<option value="${p.id}">${p.nombre} (${p.stock_actual})</option>`);
-  document.getElementById('inv-tbody').innerHTML=lista.map(m=>{
-    const p=DB.productos.find(x=>x.id===m.producto_id);
-    const tipo=m.tipo==='entrada'?'<span class="badge bg">Entrada</span>':m.tipo==='salida'?'<span class="badge br">Salida</span>':'<span class="badge ba">Ajuste</span>';
-    return `<tr><td>${(m.created_at||'').split('T')[0]}</td><td>${p?p.nombre:'-'}</td><td>${tipo}</td><td>${m.cantidad}</td></tr>`;
-  }).join('')||'<tr><td colspan="4" class="empty">Sin movimientos</td></tr>';
-}
-function openInvModal(){
-  const sel=document.getElementById('m-inv-prod');
-  sel.innerHTML='<option value="">Selecciona...</option>';
-  DB.productos.forEach(p=>sel.innerHTML+=`<option value="${p.id}">${p.nombre}</option>`);
-  document.getElementById('m-inv-cant').value='';
-  oM('m-inv');
-}
-async function guardarMovimiento(){
-  const pid=document.getElementById('m-inv-prod').value;
-  const tipo=document.getElementById('m-inv-tipo').value;
-  const cant=parseInt(document.getElementById('m-inv-cant').value)||0;
-  if(!pid||!cant)return alert('Producto y cantidad obligatorios');
-  await SB.from('stock_movimientos').insert({producto_id:parseInt(pid),tipo,cantidad:cant,created_by:SESSION.id});
-  const p=DB.productos.find(x=>x.id===parseInt(pid));
-  if(p){
-    const delta=tipo==='entrada'?cant:tipo==='salida'?-cant:0;
-    await SB.from('productos').update({stock_actual:(tipo==='ajuste'?cant:p.stock_actual+delta)}).eq('id',pid);
-  }
-  cM('m-inv');await loadAll();rInventario();rDashboard();
-}
-
-// USUARIOS
-async function rUsuarios(){
-  if(PERFIL?.rol!=='super_admin')return;
-  const {data:perfiles}=await SB.from('perfiles').select('*').order('creado_en',{ascending:false});
-  document.getElementById('usr-tbody').innerHTML=(perfiles||[]).map(p=>
-    `<tr><td>${p.usuario}</td><td>${p.rol==='super_admin'?'Super Admin':'Usuario'}</td>
-    <td>${p.activo?'Activo':'Inactivo'}</td>
-    <td>${p.id!==SESSION?.id?`<button class="btn-sm btn-primary" onclick="toggleUsr('${p.id}',${!p.activo})">${p.activo?'Desactivar':'Activar'}</button>`:'(tú)'}</td></tr>`
-  ).join('')||'<tr><td colspan="4" class="empty">Sin usuarios</td></tr>';
-}
-function openUsrModal(){document.getElementById('m-usr-nombre').value='';document.getElementById('m-usr-pass').value='';oM('m-usr');}
-async function crearUsuario(){
-  if(PERFIL?.rol!=='super_admin')return;
-  const usuario=document.getElementById('m-usr-nombre').value.trim();
-  const pass=document.getElementById('m-usr-pass').value;
-  const rol=document.getElementById('m-usr-rol').value;
-  if(!usuario||!pass||pass.length<8)return alert('Verifica los datos');
-  const {data,error}=await SB.auth.signUp({email:usuario+'@erp.local',password:pass});
-  if(error)return alert(error.message);
-  await SB.from('perfiles').insert({id:data.user.id,usuario,rol,activo:true});
-  cM('m-usr');rUsuarios();
-}
-async function toggleUsr(id,activo){
-  await SB.from('perfiles').update({activo}).eq('id',id);
-  rUsuarios();
-}
-
-// INIT
-(async function(){
-  let intentos=0;
-  while(!initSupabase() && intentos<50){ await new Promise(r=>setTimeout(r,100)); intentos++; }
-  const cs = document.getElementById('conn-status');
-  if(!SB){
-    if(cs){ cs.textContent='⚠️ No se pudo cargar Supabase (CDN bloqueado o sin internet)'; cs.style.color='#c33'; }
-    return;
-  } else {
-    if(cs){ cs.textContent='✅ Conectado a Supabase'; cs.style.color='#3c3'; }
-  }
-  const saved=JSON.parse(localStorage.getItem('erp_session')||'null');
-  if(saved?.userId){
-    try{
-      const {data:{user}}=await SB.auth.getUser();
-      if(user){
-        SESSION=user;
-        const {data:perfil}=await SB.from('perfiles').select('*').eq('id',user.id).single();
-        PERFIL=perfil;
-        initApp();
-        return;
-      }
-    }catch(e){}
-  }
-  showScr('scr-unlock');
-})();
-</script>
-</body>
-</html>
+  document.getElementById
