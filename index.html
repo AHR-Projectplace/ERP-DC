@@ -9,7 +9,7 @@
   <title>ERP - Comercializadora</title>
   
   <script>
-    console.log("Cargando ERP Versión: 1.0.11 - MVP8 Venta + Descuento Inventario");
+    console.log("Cargando ERP Versión: 1.0.11 - MVP8 Venta+Inventario / MVP9 SKU Automático");
   </script>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -431,6 +431,15 @@ function rProductos(){
   ).join('')||'<tr><td colspan="5" class="empty">Sin productos</td></tr>';
 }
 
+function generarSKU(){
+  let sku, intentos=0;
+  do {
+    sku = String(Math.floor(Math.random()*10000000000)).padStart(10,'0');
+    intentos++;
+  } while(DB.productos.some(x=>x.sku===sku) && intentos<100);
+  return sku;
+}
+
 function openProdModal(id){
   currentProdId = id || null;
   currentProdSpecs = {};
@@ -439,10 +448,12 @@ function openProdModal(id){
   ['m-prod-sku','m-prod-nombre','m-prod-precio','m-prod-stock','m-prod-spec-key','m-prod-spec-val','m-prod-price-listname','m-prod-price-val'].forEach(k=>document.getElementById(k).value='');
   document.getElementById('m-prod-stock').value='0';
   
+  const esSuperAdmin = PERFIL?.rol === 'super_admin';
+
   if(id){
     document.getElementById('m-prod-title').textContent = 'Editar Variante Industrial';
     document.getElementById('m-prod-stock').disabled = true; 
-    document.getElementById('m-prod-sku').disabled = true; 
+    document.getElementById('m-prod-sku').disabled = !esSuperAdmin; 
     document.getElementById('btn-eliminar-prod').style.display = 'block';
     const p=DB.productos.find(x=>x.id===id);
     if(p){
@@ -457,7 +468,8 @@ function openProdModal(id){
   } else {
     document.getElementById('m-prod-title').textContent = 'Nueva Variante Industrial';
     document.getElementById('m-prod-stock').disabled = false;
-    document.getElementById('m-prod-sku').disabled = false;
+    document.getElementById('m-prod-sku').value = generarSKU();
+    document.getElementById('m-prod-sku').disabled = !esSuperAdmin;
     document.getElementById('btn-eliminar-prod').style.display = 'none';
   }
   renderProdSpecs();
@@ -500,10 +512,8 @@ async function guardarProducto(){
     
     if(!sku||!nombre||precio<=0) return alert('SKU, Nombre y precio base obligatorios');
     
-    if(!currentProdId){
-      const existeSku = DB.productos.some(x => x.sku === sku);
-      if(existeSku) return alert('El SKU debe ser único.');
-    }
+    const existeSku = DB.productos.some(x => x.sku === sku && x.id !== currentProdId);
+    if(existeSku) return alert('El SKU debe ser único. Ya existe en otro producto.');
 
     const payload = { sku, nombre, precio_venta: precio, especificaciones: currentProdSpecs };
     let targetId = currentProdId;
