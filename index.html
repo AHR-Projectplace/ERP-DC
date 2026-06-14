@@ -9,7 +9,7 @@
   <title>ERP - Comercializadora</title>
   
   <script>
-    console.log("Cargando ERP Versión: 1.0.10 - Identidad Corporativa");
+    console.log("Cargando ERP Versión: 1.0.11 - MVP8 Venta + Descuento Inventario");
   </script>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -701,8 +701,54 @@ async function guardarCotizacion(){
 
 async function cambiarEstadoCot(id,estado){
   try {
+    // MVP8: Si la cotización pasa a 'aceptada' (y antes no lo era), 
+    // descontar inventario y registrar movimientos de salida.
+    const cotActual = DB.cotizaciones.find(x=>x.id===id);
+    const debeDescontar = (estado === 'aceptada' && cotActual && cotActual.estado !== 'aceptada');
+
+    if(debeDescontar){
+      const items = DB.cotizacion_items.filter(x => x.cotizacion_id === id && x.producto_id);
+      if(items.length === 0){
+        if(!confirm('Esta cotización no tiene líneas con producto vinculado. ¿Aceptar de todos modos (sin afectar inventario)?')) return;
+      } else {
+        // Validar stock disponible antes de descontar
+        const faltantes = [];
+        items.forEach(it => {
+          const p = DB.productos.find(x=>x.id===it.producto_id);
+          if(!p){ faltantes.push(`SKU desconocido (id ${it.producto_id})`); return; }
+          if(Number(p.stock_actual) < Number(it.cantidad)){
+            faltantes.push(`${p.sku || p.nombre}: requiere ${it.cantidad}, disponible ${p.stock_actual}`);
+          }
+        });
+        if(faltantes.length > 0){
+          alert('No se puede aceptar la cotización. Stock insuficiente:\n\n' + faltantes.join('\n'));
+          return;
+        }
+        // Confirmación explícita antes de afectar inventario
+        if(!confirm(`Aceptar esta cotización descontará ${items.length} línea(s) del inventario. ¿Continuar?`)) return;
+
+        // Insertar movimientos de salida + actualizar stock_actual por cada línea
+        for(const it of items){
+          const p = DB.productos.find(x=>x.id===it.producto_id);
+          if(!p) continue;
+          const { error: errMov } = await SB.from('stock_movimientos').insert({
+            producto_id: it.producto_id,
+            tipo: 'salida',
+            cantidad: it.cantidad,
+            created_by: SESSION.id
+          });
+          if(errMov) throw errMov;
+          const nuevoStock = Number(p.stock_actual) - Number(it.cantidad);
+          const { error: errUpd } = await SB.from('productos').update({ stock_actual: nuevoStock }).eq('id', it.producto_id);
+          if(errUpd) throw errUpd;
+        }
+      }
+    }
+
     await SB.from('cotizaciones').update({estado,updated_at:new Date().toISOString()}).eq('id',id);
-    await loadAll();rCotizaciones();
+    await loadAll();
+    rCotizaciones();
+    if(debeDescontar){ rInventario(); rDashboard(); alert('Cotización aceptada. Inventario actualizado.'); }
   } catch(e) { alert("Error al cambiar estado: " + e.message); }
 }
 
