@@ -9,8 +9,7 @@
   <title>ERP - Comercializadora</title>
   
   <script>
-    // Control definitivo de caché sin bucles de redirección
-    const APP_VERSION = "1.0.7"; 
+    const APP_VERSION = "1.0.8"; 
     const urlParams = new URLSearchParams(window.location.search);
     if (localStorage.getItem("erp_app_version") !== APP_VERSION || urlParams.get('v') !== APP_VERSION) {
       localStorage.setItem("erp_app_version", APP_VERSION);
@@ -29,7 +28,7 @@
     .auth-card{background:white;padding:40px;border-radius:10px;box-shadow:0 10px 40px rgba(0,0,0,0.3);width:100%;max-width:400px;}
     .auth-card h2{margin-bottom:20px;color:#667eea;}
     .form-group{margin-bottom:15px;}
-    .form-group label覆display:block;margin-bottom:5px;font-weight:500;}
+    .form-group label{display:block;margin-bottom:5px;font-weight:500;}
     .form-group input,.form-group select,.form-group textarea{width:100%;padding:10px;border:1px solid #ddd;border-radius:5px;font-size:14px;font-family:inherit;}
     .btn{padding:10px 20px;border:none;border-radius:5px;cursor:pointer;font-size:14px;font-weight:500;}
     .btn-primary{background:#667eea;color:white;width:100%;margin-top:10px;}
@@ -228,185 +227,4 @@
 
 <div id="m-usr" class="modal"><div class="modal-content">
   <div class="modal-header"><h3>Usuario</h3><button class="modal-close" onclick="cM('m-usr')">×</button></div>
-  <div class="form-group"><label>Usuario</label><input type="text" id="m-usr-nombre"></div>
-  <div class="form-group"><label>Contraseña</label><input type="password" id="m-usr-pass"></div>
-  <div class="form-group"><label>Rol</label><select id="m-usr-rol"><option value="usuario">Usuario</option><option value="super_admin">Super Admin</option></select></div>
-  <button class="btn btn-primary" onclick="crearUsuario()">Crear</button>
-</div></div>
-
-<script>
-window.addEventListener('error', function(e){ mostrarErrorDebug('JS Error: ' + e.message + ' (línea ' + e.lineno + ')'); });
-window.addEventListener('unhandledrejection', function(e){ mostrarErrorDebug('Promise Error: ' + (e.reason?.message || e.reason)); });
-function mostrarErrorDebug(msg){
-  let box = document.getElementById('debug-box');
-  if(!box){
-    box = document.createElement('div');
-    box.id = 'debug-box';
-    box.style = 'position:fixed;bottom:0;left:0;right:0;background:#c33;color:#fff;padding:10px;font-family:monospace;font-size:12px;z-index:99999;max-height:40vh;overflow:auto;white-space:pre-wrap;';
-    document.body.appendChild(box);
-  }
-  box.textContent += msg + '\n';
-}
-
-const SUPABASE_URL = 'https://yknwptsqamvqnoidtmcv.supabase.co';
-const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlrbndwdHNxYW12cW5vaWR0bWN2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEyMTI1NDQsImexcCI6MjA5Njc4ODU0NH0.bKRKx5nHe_TwWRTG-2TRYe8WJfXn2ZtsL0RQMOJtM7c';
-let SB = null;
-
-function initSupabase(){
-  if(window.supabase){ SB = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY); return true; }
-  return false;
-}
-
-let SESSION = null, PERFIL = null;
-let DB = { productos:[], clientes:[], cotizaciones:[], cotizacion_items:[], stock_movimientos:[], producto_precios:[] };
-let cotLineas = [];
-
-let currentProdId = null;
-let currentProdSpecs = {};
-let currentProdPrices = {}; 
-let currentCliId = null;
-
-function showScr(id){ document.querySelectorAll('.scr').forEach(s=>s.classList.remove('active')); document.getElementById(id).classList.add('active'); }
-function cM(id){document.getElementById(id).classList.remove('open');}
-function oM(id){document.getElementById(id).classList.add('open');}
-function fmt$(n){return '$'+Number(n||0).toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2});}
-
-function sv(id){
-  document.querySelectorAll('.vw').forEach(v=>v.classList.remove('active'));
-  document.querySelectorAll('.ntb').forEach(t=>t.classList.remove('active'));
-  document.getElementById('vw-'+id).classList.add('active');
-  if(event && event.target) event.target.classList.add('active');
-  if(id==='dashboard') rDashboard();
-  if(id==='productos') rProductos();
-  if(id==='clientes') rClientes();
-  if(id==='cotizaciones') rCotizaciones();
-  if(id==='inventario') rInventario();
-  if(id==='usuarios'&&PERFIL?.rol==='super_admin') rUsuarios();
-}
-
-async function doUnlock(){
-  const code = document.getElementById('ue-code').value.trim();
-  if(code !== 'ERP2025!'){ document.getElementById('ue-err').textContent='Código incorrecto'; document.getElementById('ue-err').classList.add('show'); return; }
-  document.getElementById('ue-err').classList.remove('show');
-  if(!SB){ document.getElementById('ue-err').textContent='Supabase no está listo todavía.'; document.getElementById('ue-err').classList.add('show'); return; }
-  const {data: perfiles, error} = await SB.from('perfiles').select('id').limit(1);
-  if(error){ document.getElementById('ue-err').textContent='Error Supabase: '+error.message; document.getElementById('ue-err').classList.add('show'); return; }
-  showScr((perfiles&&perfiles.length)?'scr-login':'scr-setup');
-}
-
-async function doSetup(){
-  const usuario = document.getElementById('su-user').value.trim();
-  const pass = document.getElementById('su-pass').value;
-  if(!usuario||pass!==document.getElementById('su-pass2').value||pass.length<8){ document.getElementById('su-err').textContent='Verifica los datos (mín 8 caracteres)'; document.getElementById('su-err').classList.add('show'); return; }
-  const {data,error} = await SB.auth.signUp({email:usuario+'@erp.local',password:pass});
-  if(error){document.getElementById('su-err').textContent=error.message;document.getElementById('su-err').classList.add('show');return;}
-  await SB.from('perfiles').insert({id:data.user.id,usuario,rol:'super_admin',activo:true});
-  showScr('scr-login');
-  document.getElementById('lg-ok').textContent='Admin creado. Inicia sesión.';
-  document.getElementById('lg-ok').classList.add('show');
-  document.getElementById('lg-user').value=usuario;
-}
-
-async function doLogin(){
-  const usuario = document.getElementById('lg-user').value.trim();
-  const pass = document.getElementById('lg-pass').value;
-  if(!usuario||!pass){document.getElementById('lg-err').textContent='Ingresa usuario y contraseña';document.getElementById('lg-err').classList.add('show');return;}
-  const {data,error} = await SB.auth.signInWithPassword({email:usuario+'@erp.local',password:pass});
-  if(error){document.getElementById('lg-err').textContent='Error: '+error.message;document.getElementById('lg-err').classList.add('show');return;}
-  SESSION=data.user;
-  const {data:perfil}=await SB.from('perfiles').select('*').eq('id',SESSION.id).single();
-  PERFIL=perfil;
-  localStorage.setItem('erp_session',JSON.stringify({userId:SESSION.id}));
-  initApp();
-}
-
-async function doLogout(){
-  await SB.auth.signOut();
-  SESSION=null;PERFIL=null;localStorage.removeItem('erp_session');
-  document.getElementById('app').classList.remove('active');
-  showScr('scr-unlock');
-}
-
-async function initApp(){
-  document.getElementById('nu-name').textContent=PERFIL.usuario;
-  const r=document.getElementById('nu-role');
-  r.textContent=PERFIL.rol==='super_admin'?'Super Admin':'Usuario';
-  r.className='badge '+(PERFIL.rol==='super_admin'?'bg':'bgr');
-  document.getElementById('nb-usuarios').style.display=PERFIL.rol==='super_admin'?'':'none';
-  document.querySelectorAll('.scr').forEach(s=>s.classList.remove('active'));
-  document.getElementById('app').classList.add('active');
-  await loadAll();
-  rDashboard();
-}
-
-async function loadAll(){
-  const [prod,cli,cot,items,movs,listasPrecios]=await Promise.all([
-    SB.from('productos').select('*').order('nombre'),
-    SB.from('clientes').select('*').order('razon_social'),
-    SB.from('cotizaciones').select('*').order('created_at',{ascending:false}),
-    SB.from('cotizacion_items').select('*'),
-    SB.from('stock_movimientos').select('*').order('created_at',{ascending:false}),
-    SB.from('producto_precios').select('*')
-  ]);
-  DB.productos=prod.data||[];
-  DB.clientes=cli.data||[];
-  DB.cotizaciones=cot.data||[];
-  DB.cotizacion_items=items.data||[];
-  DB.stock_movimientos=movs.data||[];
-  DB.producto_precios=listasPrecios.data||[];
-}
-
-function rDashboard(){
-  const mes=new Date().toISOString().slice(0,7);
-  const cotsMes=DB.cotizaciones.filter(c=>c.created_at&&c.created_at.startsWith(mes));
-  const tot=cotsMes.reduce((s,c)=>s+Number(c.total||0),0);
-  document.getElementById('db-cot-mes').textContent=cotsMes.length;
-  document.getElementById('db-total').textContent=fmt$(tot);
-  document.getElementById('db-acepta').textContent=cotsMes.filter(c=>c.estado==='aceptada').length;
-}
-
-// PRODUCTOS
-function rProductos(){
-  document.getElementById('prod-tbody').innerHTML=DB.productos.map(p=>
-    `<tr><td><code style="font-weight:bold; background:#eaeaea; padding:2px 6px; border-radius:3px;">${p.sku || '-'}</code></td><td>${p.nombre}</td><td>${fmt$(p.precio_venta)}</td><td>${p.stock_actual}</td><td><button class="btn-sm btn-primary" onclick="editProd(${p.id})">Editar</button></td></tr>`
-  ).join('')||'<tr><td colspan="5" class="empty">Sin productos</td></tr>';
-}
-
-function openProdModal(id){
-  currentProdId = id || null;
-  currentProdSpecs = {};
-  currentProdPrices = {}; 
-  
-  ['m-prod-sku','m-prod-nombre','m-prod-precio','m-prod-stock','m-prod-spec-key','m-prod-spec-val','m-prod-price-listname','m-prod-price-val'].forEach(k=>document.getElementById(k).value='');
-  document.getElementById('m-prod-stock').value='0';
-  
-  if(id){
-    document.getElementById('m-prod-title').textContent = 'Editar Variante Industrial';
-    document.getElementById('m-prod-stock').disabled = true; 
-    document.getElementById('m-prod-sku').disabled = true; 
-    document.getElementById('btn-eliminar-prod').style.display = 'block';
-    const p=DB.productos.find(x=>x.id===id);
-    if(p){
-      document.getElementById('m-prod-sku').value=p.sku || '';
-      document.getElementById('m-prod-nombre').value=p.nombre;
-      document.getElementById('m-prod-precio').value=p.precio_venta;
-      document.getElementById('m-prod-stock').value=p.stock_actual;
-      currentProdSpecs = p.especificaciones || {};
-      const preciosFiltrados = DB.producto_precios.filter(x => x.producto_id === id);
-      preciosFiltrados.forEach(pr => { currentProdPrices[pr.lista_nombre] = pr.precio; });
-    }
-  } else {
-    document.getElementById('m-prod-title').textContent = 'Nueva Variante Industrial';
-    document.getElementById('m-prod-stock').disabled = false;
-    document.getElementById('m-prod-sku').disabled = false;
-    document.getElementById('btn-eliminar-prod').style.display = 'none';
-  }
-  renderProdSpecs();
-  renderProdPrices();
-  oM('m-prod');
-}
-
-function addProdSpec(){
-  const k = document.getElementById('m-prod-spec-key').value.trim();
-  const v = document.getElementById('m-prod-spec-val').value.trim();
-  if(k && v){ currentProdSpecs[k] = v;
+  <div class="form-group"><label>
