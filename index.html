@@ -9,8 +9,7 @@
   <title>ERP - Comercializadora</title>
   
   <script>
-    // Marcador de versión seguro (sin bucles de redirección)
-    console.log("Cargando ERP Versión: 1.0.9 - Estable");
+    console.log("Cargando ERP Versión: 1.0.10 - Identidad Corporativa");
   </script>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -119,6 +118,7 @@
       <button class="ntb" onclick="sv('clientes')">👥 Clientes</button>
       <button class="ntb" onclick="sv('cotizaciones')">📄 Cotizaciones</button>
       <button class="ntb" onclick="sv('inventario')">📊 Inventario</button>
+      <button class="ntb" id="nb-config" style="display:none;" onclick="sv('configuracion')">⚙️ Configuración</button>
       <button class="ntb" id="nb-usuarios" style="display:none;" onclick="sv('usuarios')">👤 Usuarios</button>
     </div>
     <div class="content">
@@ -152,6 +152,20 @@
         <select id="inv-prod" onchange="rInventario()" style="padding:8px;margin-left:10px;"><option value="">Todos</option></select>
         <table><thead><tr><th>Fecha</th><th>SKU</th><th>Producto</th><th>Tipo</th><th>Cantidad</th></tr></thead><tbody id="inv-tbody"></tbody></table>
       </div>
+      
+      <div id="vw-configuracion" class="vw">
+        <h2>Configuración de la Empresa (Formatos y PDFs)</h2>
+        <div class="card" style="max-width:600px; margin-top:20px;">
+          <div class="form-group"><label>Nombre de la Empresa (Razón Social)</label><input type="text" id="cfg-nombre"></div>
+          <div class="form-group"><label>RFC</label><input type="text" id="cfg-rfc"></div>
+          <div class="form-group"><label>Dirección Física</label><textarea id="cfg-dir" rows="2"></textarea></div>
+          <div class="form-group"><label>Teléfono de Contacto</label><input type="text" id="cfg-tel"></div>
+          <div class="form-group"><label>Email Corporativo</label><input type="email" id="cfg-email"></div>
+          <div class="form-group"><label>Leyenda en Pie de Cotización (Términos, Cuentas Bancarias, Vigencias)</label><textarea id="cfg-leyenda" rows="4"></textarea></div>
+          <button class="btn btn-primary" onclick="guardarConfiguracion()">Guardar Configuración</button>
+        </div>
+      </div>
+
       <div id="vw-usuarios" class="vw">
         <h2>Usuarios</h2>
         <button class="btn btn-primary" style="width:auto;" onclick="openUsrModal()">+ Nuevo Usuario</button>
@@ -248,15 +262,13 @@ const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZ
 let SB = null;
 
 function initSupabase(){
-  if(window.supabase){ 
-    SB = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY); 
-    return true; 
-  }
+  if(window.supabase){ SB = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY); return true; }
   return false;
 }
 
 let SESSION = null, PERFIL = null;
 let DB = { productos:[], clientes:[], cotizaciones:[], cotizacion_items:[], stock_movimientos:[], producto_precios:[] };
+let CONFIG_ERP = {};
 let cotLineas = [];
 
 let currentProdId = null;
@@ -270,54 +282,63 @@ function oM(id){document.getElementById(id).classList.add('open');}
 function fmt$(n){return '$'+Number(n||0).toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2});}
 
 function sv(id){
-  document.querySelectorAll('.vw').forEach(v=>v.classList.remove('active'));
-  document.querySelectorAll('.ntb').forEach(t=>t.classList.remove('active'));
-  document.getElementById('vw-'+id).classList.add('active');
-  if(event && event.target && event.target.classList) event.target.classList.add('active');
-  
-  if(id==='dashboard') rDashboard();
-  if(id==='productos') rProductos();
-  if(id==='clientes') rClientes();
-  if(id==='cotizaciones') rCotizaciones();
-  if(id==='inventario') rInventario();
-  if(id==='usuarios'&&PERFIL?.rol==='super_admin') rUsuarios();
+  try {
+    document.querySelectorAll('.vw').forEach(v=>v.classList.remove('active'));
+    document.querySelectorAll('.ntb').forEach(t=>t.classList.remove('active'));
+    document.getElementById('vw-'+id).classList.add('active');
+    if(event && event.target && event.target.classList) event.target.classList.add('active');
+    
+    if(id==='dashboard') rDashboard();
+    if(id==='productos') rProductos();
+    if(id==='clientes') rClientes();
+    if(id==='cotizaciones') rCotizaciones();
+    if(id==='inventario') rInventario();
+    if(id==='configuracion'&&PERFIL?.rol==='super_admin') rConfiguracion();
+    if(id==='usuarios'&&PERFIL?.rol==='super_admin') rUsuarios();
+  } catch(e) { console.error(e); alert("Error al cambiar de vista."); }
 }
 
 async function doUnlock(){
-  const code = document.getElementById('ue-code').value.trim();
-  if(code !== 'ERP2025!'){ document.getElementById('ue-err').textContent='Código incorrecto'; document.getElementById('ue-err').classList.add('show'); return; }
-  document.getElementById('ue-err').classList.remove('show');
-  if(!SB){ document.getElementById('ue-err').textContent='Supabase no está listo todavía.'; document.getElementById('ue-err').classList.add('show'); return; }
-  
-  const {data: perfiles, error} = await SB.from('perfiles').select('id').limit(1);
-  if(error){ document.getElementById('ue-err').textContent='Error Supabase: '+error.message; document.getElementById('ue-err').classList.add('show'); return; }
-  showScr((perfiles&&perfiles.length)?'scr-login':'scr-setup');
+  try {
+    const code = document.getElementById('ue-code').value.trim();
+    if(code !== 'ERP2025!'){ document.getElementById('ue-err').textContent='Código incorrecto'; document.getElementById('ue-err').classList.add('show'); return; }
+    document.getElementById('ue-err').classList.remove('show');
+    if(!SB){ document.getElementById('ue-err').textContent='Supabase no está listo todavía.'; document.getElementById('ue-err').classList.add('show'); return; }
+    
+    const {data: perfiles, error} = await SB.from('perfiles').select('id').limit(1);
+    if(error){ document.getElementById('ue-err').textContent='Error Supabase: '+error.message; document.getElementById('ue-err').classList.add('show'); return; }
+    showScr((perfiles&&perfiles.length)?'scr-login':'scr-setup');
+  } catch (e) { alert("Error crítico en Unlock: " + e.message); }
 }
 
 async function doSetup(){
-  const usuario = document.getElementById('su-user').value.trim();
-  const pass = document.getElementById('su-pass').value;
-  if(!usuario||pass!==document.getElementById('su-pass2').value||pass.length<8){ document.getElementById('su-err').textContent='Verifica los datos (mín 8 caracteres)'; document.getElementById('su-err').classList.add('show'); return; }
-  const {data,error} = await SB.auth.signUp({email:usuario+'@erp.local',password:pass});
-  if(error){document.getElementById('su-err').textContent=error.message;document.getElementById('su-err').classList.add('show');return;}
-  await SB.from('perfiles').insert({id:data.user.id,usuario,rol:'super_admin',activo:true});
-  showScr('scr-login');
-  document.getElementById('lg-ok').textContent='Admin creado. Inicia sesión.';
-  document.getElementById('lg-ok').classList.add('show');
-  document.getElementById('lg-user').value=usuario;
+  try {
+    const usuario = document.getElementById('su-user').value.trim();
+    const pass = document.getElementById('su-pass').value;
+    if(!usuario||pass!==document.getElementById('su-pass2').value||pass.length<8){ document.getElementById('su-err').textContent='Verifica los datos (mín 8 caracteres)'; document.getElementById('su-err').classList.add('show'); return; }
+    const {data,error} = await SB.auth.signUp({email:usuario+'@erp.local',password:pass});
+    if(error){document.getElementById('su-err').textContent=error.message;document.getElementById('su-err').classList.add('show');return;}
+    await SB.from('perfiles').insert({id:data.user.id,usuario,rol:'super_admin',activo:true});
+    showScr('scr-login');
+    document.getElementById('lg-ok').textContent='Admin creado. Inicia sesión.';
+    document.getElementById('lg-ok').classList.add('show');
+    document.getElementById('lg-user').value=usuario;
+  } catch(e) { alert("Error en Setup: " + e.message); }
 }
 
 async function doLogin(){
-  const usuario = document.getElementById('lg-user').value.trim();
-  const pass = document.getElementById('lg-pass').value;
-  if(!usuario||!pass){document.getElementById('lg-err').textContent='Ingresa usuario y contraseña';document.getElementById('lg-err').classList.add('show');return;}
-  const {data,error} = await SB.auth.signInWithPassword({email:usuario+'@erp.local',password:pass});
-  if(error){document.getElementById('lg-err').textContent='Error: '+error.message;document.getElementById('lg-err').classList.add('show');return;}
-  SESSION=data.user;
-  const {data:perfil}=await SB.from('perfiles').select('*').eq('id',SESSION.id).single();
-  PERFIL=perfil;
-  localStorage.setItem('erp_session',JSON.stringify({userId:SESSION.id}));
-  initApp();
+  try {
+    const usuario = document.getElementById('lg-user').value.trim();
+    const pass = document.getElementById('lg-pass').value;
+    if(!usuario||!pass){document.getElementById('lg-err').textContent='Ingresa usuario y contraseña';document.getElementById('lg-err').classList.add('show');return;}
+    const {data,error} = await SB.auth.signInWithPassword({email:usuario+'@erp.local',password:pass});
+    if(error){document.getElementById('lg-err').textContent='Error: '+error.message;document.getElementById('lg-err').classList.add('show');return;}
+    SESSION=data.user;
+    const {data:perfil}=await SB.from('perfiles').select('*').eq('id',SESSION.id).single();
+    PERFIL=perfil;
+    localStorage.setItem('erp_session',JSON.stringify({userId:SESSION.id}));
+    initApp();
+  } catch(e) { alert("Error en Login: " + e.message); }
 }
 
 async function doLogout(){
@@ -333,6 +354,7 @@ async function initApp(){
   r.textContent=PERFIL.rol==='super_admin'?'Super Admin':'Usuario';
   r.className='badge '+(PERFIL.rol==='super_admin'?'bg':'bgr');
   document.getElementById('nb-usuarios').style.display=PERFIL.rol==='super_admin'?'':'none';
+  document.getElementById('nb-config').style.display=PERFIL.rol==='super_admin'?'':'none';
   document.querySelectorAll('.scr').forEach(s=>s.classList.remove('active'));
   document.getElementById('app').classList.add('active');
   await loadAll();
@@ -340,20 +362,57 @@ async function initApp(){
 }
 
 async function loadAll(){
-  const [prod,cli,cot,items,movs,listasPrecios]=await Promise.all([
-    SB.from('productos').select('*').order('nombre'),
-    SB.from('clientes').select('*').order('razon_social'),
-    SB.from('cotizaciones').select('*').order('created_at',{ascending:false}),
-    SB.from('cotizacion_items').select('*'),
-    SB.from('stock_movimientos').select('*').order('created_at',{ascending:false}),
-    SB.from('producto_precios').select('*')
-  ]);
-  DB.productos=prod.data||[];
-  DB.clientes=cli.data||[];
-  DB.cotizaciones=cot.data||[];
-  DB.cotizacion_items=items.data||[];
-  DB.stock_movimientos=movs.data||[];
-  DB.producto_precios=listasPrecios.data||[];
+  try {
+    const [prod,cli,cot,items,movs,listasPrecios, conf]=await Promise.all([
+      SB.from('productos').select('*').order('nombre'),
+      SB.from('clientes').select('*').order('razon_social'),
+      SB.from('cotizaciones').select('*').order('created_at',{ascending:false}),
+      SB.from('cotizacion_items').select('*'),
+      SB.from('stock_movimientos').select('*').order('created_at',{ascending:false}),
+      SB.from('producto_precios').select('*'),
+      SB.from('configuracion_erp').select('*').eq('id', 1).single()
+    ]);
+    DB.productos=prod.data||[];
+    DB.clientes=cli.data||[];
+    DB.cotizaciones=cot.data||[];
+    DB.cotizacion_items=items.data||[];
+    DB.stock_movimientos=movs.data||[];
+    DB.producto_precios=listasPrecios.data||[];
+    CONFIG_ERP = conf.data || {};
+  } catch(e) { 
+    console.error("Aviso de Base de Datos: Algunas tablas podrían no existir o estar vacías.", e); 
+  }
+}
+
+// CONFIGURACIÓN DE IDENTIDAD
+function rConfiguracion() {
+  document.getElementById('cfg-nombre').value = CONFIG_ERP.empresa_nombre || '';
+  document.getElementById('cfg-rfc').value = CONFIG_ERP.empresa_rfc || '';
+  document.getElementById('cfg-dir').value = CONFIG_ERP.empresa_direccion || '';
+  document.getElementById('cfg-tel').value = CONFIG_ERP.empresa_telefono || '';
+  document.getElementById('cfg-email').value = CONFIG_ERP.empresa_email || '';
+  document.getElementById('cfg-leyenda').value = CONFIG_ERP.cotizacion_leyenda || '';
+}
+
+async function guardarConfiguracion() {
+  try {
+    const payload = {
+      id: 1,
+      empresa_nombre: document.getElementById('cfg-nombre').value.trim(),
+      empresa_rfc: document.getElementById('cfg-rfc').value.trim(),
+      empresa_direccion: document.getElementById('cfg-dir').value.trim(),
+      empresa_telefono: document.getElementById('cfg-tel').value.trim(),
+      empresa_email: document.getElementById('cfg-email').value.trim(),
+      cotizacion_leyenda: document.getElementById('cfg-leyenda').value.trim()
+    };
+    
+    const {error} = await SB.from('configuracion_erp').upsert(payload);
+    if(error) throw error;
+    CONFIG_ERP = payload;
+    alert("Configuración de empresa guardada con éxito.");
+  } catch(e) {
+    alert("Error al guardar configuración. Asegúrate de haber creado la tabla en Supabase. Detalles: " + e.message);
+  }
 }
 
 function rDashboard(){
@@ -433,45 +492,49 @@ function renderProdPrices(){
 }
 
 async function guardarProducto(){
-  const sku=document.getElementById('m-prod-sku').value.trim().toUpperCase();
-  const nombre=document.getElementById('m-prod-nombre').value.trim();
-  const precio=parseFloat(document.getElementById('m-prod-precio').value)||0;
-  const stock=parseInt(document.getElementById('m-prod-stock').value)||0;
-  
-  if(!sku||!nombre||precio<=0) return alert('SKU, Nombre y precio base obligatorios');
-  
-  if(!currentProdId){
-    const existeSku = DB.productos.some(x => x.sku === sku);
-    if(existeSku) return alert('El SKU debe ser único.');
-  }
+  try {
+    const sku=document.getElementById('m-prod-sku').value.trim().toUpperCase();
+    const nombre=document.getElementById('m-prod-nombre').value.trim();
+    const precio=parseFloat(document.getElementById('m-prod-precio').value)||0;
+    const stock=parseInt(document.getElementById('m-prod-stock').value)||0;
+    
+    if(!sku||!nombre||precio<=0) return alert('SKU, Nombre y precio base obligatorios');
+    
+    if(!currentProdId){
+      const existeSku = DB.productos.some(x => x.sku === sku);
+      if(existeSku) return alert('El SKU debe ser único.');
+    }
 
-  const payload = { sku, nombre, precio_venta: precio, especificaciones: currentProdSpecs };
-  let targetId = currentProdId;
+    const payload = { sku, nombre, precio_venta: precio, especificaciones: currentProdSpecs };
+    let targetId = currentProdId;
 
-  if(currentProdId){
-    const {error} = await SB.from('productos').update(payload).eq('id', currentProdId);
-    if(error) return alert("Error actualizando: " + error.message);
-  } else {
-    payload.stock_actual = stock; payload.costo = 0; payload.stock_minimo = 5;
-    const { data, error } = await SB.from('productos').insert(payload).select('id').single();
-    if(error) return alert("Error creando: " + error.message);
-    targetId = data.id;
-  }
-  
-  if(targetId){
-    await SB.from('producto_precios').delete().eq('producto_id', targetId);
-    const insertsPrecios = Object.keys(currentProdPrices).map(lista => ({ producto_id: targetId, lista_nombre: lista, precio: currentProdPrices[lista] }));
-    if(insertsPrecios.length > 0){ await SB.from('producto_precios').insert(insertsPrecios); }
-  }
-  
-  cM('m-prod'); await loadAll(); rProductos();
+    if(currentProdId){
+      const {error} = await SB.from('productos').update(payload).eq('id', currentProdId);
+      if(error) throw error;
+    } else {
+      payload.stock_actual = stock; payload.costo = 0; payload.stock_minimo = 5;
+      const { data, error } = await SB.from('productos').insert(payload).select('id').single();
+      if(error) throw error;
+      targetId = data.id;
+    }
+    
+    if(targetId){
+      await SB.from('producto_precios').delete().eq('producto_id', targetId);
+      const insertsPrecios = Object.keys(currentProdPrices).map(lista => ({ producto_id: targetId, lista_nombre: lista, precio: currentProdPrices[lista] }));
+      if(insertsPrecios.length > 0){ await SB.from('producto_precios').insert(insertsPrecios); }
+    }
+    
+    cM('m-prod'); await loadAll(); rProductos();
+  } catch(e) { alert("Error al guardar producto: " + e.message); }
 }
 
 async function eliminarProducto(){
   if(!currentProdId) return;
   if(confirm('¿Eliminar esta variante? Removerá su inventario y precios.')){
-    await SB.from('productos').delete().eq('id', currentProdId);
-    cM('m-prod'); await loadAll(); rProductos();
+    try {
+      await SB.from('productos').delete().eq('id', currentProdId);
+      cM('m-prod'); await loadAll(); rProductos();
+    } catch(e) { alert("Error al eliminar: " + e.message); }
   }
 }
 
@@ -503,25 +566,29 @@ function openCliModal(id){
 }
 
 async function guardarCliente(){
-  const rs=document.getElementById('m-cli-rs').value.trim();
-  const rfc=document.getElementById('m-cli-rfc').value.trim();
-  const email=document.getElementById('m-cli-email').value.trim();
-  const lista=document.getElementById('m-cli-lista').value.trim()||'general';
-  if(!rs||!rfc)return alert('Razón Social y RFC obligatorios');
-  
-  const payload = {razon_social:rs, rfc, email, lista_precios:lista};
-  
-  if (currentCliId) {
-    await SB.from('clientes').update(payload).eq('id', currentCliId);
-  } else {
-    await SB.from('clientes').insert(payload);
-  }
-  
-  cM('m-cli'); await loadAll(); rClientes();
+  try {
+    const rs=document.getElementById('m-cli-rs').value.trim();
+    const rfc=document.getElementById('m-cli-rfc').value.trim();
+    const email=document.getElementById('m-cli-email').value.trim();
+    const lista=document.getElementById('m-cli-lista').value.trim()||'general';
+    if(!rs||!rfc)return alert('Razón Social y RFC obligatorios');
+    
+    const payload = {razon_social:rs, rfc, email, lista_precios:lista};
+    
+    if (currentCliId) {
+      const {error} = await SB.from('clientes').update(payload).eq('id', currentCliId);
+      if(error) throw error;
+    } else {
+      const {error} = await SB.from('clientes').insert(payload);
+      if(error) throw error;
+    }
+    
+    cM('m-cli'); await loadAll(); rClientes();
+  } catch(e) { alert("Error al guardar cliente: " + e.message); }
 }
 function editCli(id){openCliModal(id);}
 
-// COTIZACIONES CON AUTOMATIZACIÓN DE PRECIOS
+// COTIZACIONES
 function rCotizaciones(){
   const f=document.getElementById('cot-filtro').value;
   const lista=f?DB.cotizaciones.filter(c=>c.estado===f):DB.cotizaciones;
@@ -602,52 +669,111 @@ function cotCalcTotal(){
 }
 
 async function guardarCotizacion(){
-  const cliente_id=document.getElementById('m-cot-cliente').value;
-  if(!cliente_id||cotLineas.length===0)return alert('Cliente y al menos una línea obligatorios');
-  const ivaPct=parseFloat(document.getElementById('m-cot-iva').value)||0;
-  const subtotal=cotLineas.reduce((s,l)=>s+(l.cantidad*l.precio_unitario*(1-(l.descuento_pct||0)/100)),0);
-  const iva=subtotal*ivaPct/100;
-  const numero='COT-'+Date.now().toString(36).toUpperCase().slice(-6);
-  
-  const {data:cot,error}=await SB.from('cotizaciones').insert({
-    numero,cliente_id:parseInt(cliente_id),fecha:new Date().toISOString().split('T')[0],
-    vigencia:new Date(Date.now()+15*86400000).toISOString().split('T')[0],
-    subtotal,iva,iva_porcentaje:ivaPct,total:subtotal+iva,
-    created_by:SESSION.id,estado:'borrador'
-  }).select('id').single();
-  
-  if(error)return alert('Error al crear cotización: '+error.message);
-  
-  const items=cotLineas.map(l=>({
-    cotizacion_id:cot.id,
-    producto_id:l.producto_id?parseInt(l.producto_id):null,
-    descripcion:l.descripcion,cantidad:l.cantidad,
-    precio_unitario:l.precio_unitario,descuento_pct:l.descuento_pct||0,
-    importe:l.cantidad*l.precio_unitario*(1-(l.descuento_pct||0)/100)
-  }));
-  await SB.from('cotizacion_items').insert(items);
-  
-  cM('m-cot');await loadAll();rCotizaciones();rDashboard();
+  try {
+    const cliente_id=document.getElementById('m-cot-cliente').value;
+    if(!cliente_id||cotLineas.length===0)return alert('Cliente y al menos una línea obligatorios');
+    const ivaPct=parseFloat(document.getElementById('m-cot-iva').value)||0;
+    const subtotal=cotLineas.reduce((s,l)=>s+(l.cantidad*l.precio_unitario*(1-(l.descuento_pct||0)/100)),0);
+    const iva=subtotal*ivaPct/100;
+    const numero='COT-'+Date.now().toString(36).toUpperCase().slice(-6);
+    
+    const {data:cot,error}=await SB.from('cotizaciones').insert({
+      numero,cliente_id:parseInt(cliente_id),fecha:new Date().toISOString().split('T')[0],
+      vigencia:new Date(Date.now()+15*86400000).toISOString().split('T')[0],
+      subtotal,iva,iva_porcentaje:ivaPct,total:subtotal+iva,
+      created_by:SESSION.id,estado:'borrador'
+    }).select('id').single();
+    
+    if(error) throw error;
+    
+    const items=cotLineas.map(l=>({
+      cotizacion_id:cot.id,
+      producto_id:l.producto_id?parseInt(l.producto_id):null,
+      descripcion:l.descripcion,cantidad:l.cantidad,
+      precio_unitario:l.precio_unitario,descuento_pct:l.descuento_pct||0,
+      importe:l.cantidad*l.precio_unitario*(1-(l.descuento_pct||0)/100)
+    }));
+    await SB.from('cotizacion_items').insert(items);
+    
+    cM('m-cot');await loadAll();rCotizaciones();rDashboard();
+  } catch(e) { alert("Error al guardar cotización: " + e.message); }
 }
 
 async function cambiarEstadoCot(id,estado){
-  await SB.from('cotizaciones').update({estado,updated_at:new Date().toISOString()}).eq('id',id);
-  await loadAll();rCotizaciones();
+  try {
+    await SB.from('cotizaciones').update({estado,updated_at:new Date().toISOString()}).eq('id',id);
+    await loadAll();rCotizaciones();
+  } catch(e) { alert("Error al cambiar estado: " + e.message); }
 }
 
+// IMPRESIÓN DINÁMICA DE PDF
 async function verCot(id){
-  const c=DB.cotizaciones.find(x=>x.id===id);if(!c)return;
-  const items=DB.cotizacion_items.filter(x=>x.cotizacion_id===id);
-  const cli=DB.clientes.find(x=>x.id===c.cliente_id);
-  const doc=new jspdf.jsPDF();
-  doc.setFontSize(16);doc.text('COTIZACIÓN '+c.numero,20,20);
-  doc.setFontSize(10);
-  doc.text('Cliente: '+(cli?cli.razon_social:''),20,30);
-  doc.text('Fecha: '+c.fecha+' | Vigencia: '+c.vigencia,20,36);
-  doc.text('Subtotal: '+fmt$(c.subtotal)+' | IVA: '+fmt$(c.iva)+' | Total: '+fmt$(c.total),20,42);
-  const rows=items.map(i=>[i.descripcion||'',i.cantidad,fmt$(i.precio_unitario),i.descuento_pct+'%',fmt$(i.importe||0)]);
-  doc.autoTable({head:[['Producto / Variante','Cant','P.Unit','Desc%','Importe']],body:rows,startY:50});
-  doc.save('Cotizacion_'+c.numero+'.pdf');
+  try {
+    const c=DB.cotizaciones.find(x=>x.id===id);if(!c)return;
+    const items=DB.cotizacion_items.filter(x=>x.cotizacion_id===id);
+    const cli=DB.clientes.find(x=>x.id===c.cliente_id);
+    const doc=new jspdf.jsPDF();
+    
+    // Extracción de Identidad Corporativa o datos por defecto
+    const empNombre = CONFIG_ERP.empresa_nombre || 'MI EMPRESA S.A. DE C.V.';
+    const empRfc = CONFIG_ERP.empresa_rfc || 'RFC: MIE010101XXX';
+    const empDir = CONFIG_ERP.empresa_direccion || '';
+    const empTel = CONFIG_ERP.empresa_telefono || '';
+    const empEmail = CONFIG_ERP.empresa_email || '';
+    const empLeyenda = CONFIG_ERP.cotizacion_leyenda || 'Precios y condiciones sujetos a cambios sin previo aviso.';
+
+    // Encabezado Izquierdo (Empresa)
+    doc.setFontSize(16);
+    doc.text(empNombre, 20, 20);
+    doc.setFontSize(10);
+    doc.text(empRfc, 20, 26);
+    if(empDir) doc.text(empDir, 20, 32);
+    if(empTel || empEmail) doc.text(`Tel: ${empTel} | Correo: ${empEmail}`, 20, 38);
+
+    // Encabezado Derecho (Datos Cotización)
+    doc.setFontSize(12);
+    doc.text(`COTIZACIÓN: ${c.numero}`, 190, 20, { align: 'right' });
+    doc.setFontSize(10);
+    doc.text(`Fecha: ${c.fecha}`, 190, 26, { align: 'right' });
+    doc.text(`Vigencia: ${c.vigencia}`, 190, 32, { align: 'right' });
+
+    // Línea separadora
+    doc.setDrawColor(200);
+    doc.line(20, 42, 190, 42);
+
+    // Datos del Cliente
+    doc.setFontSize(11);
+    doc.text(`Cliente: ${cli ? cli.razon_social : '-'}`, 20, 50);
+
+    // Tabla de Productos
+    const rows=items.map(i=>[i.descripcion||'',i.cantidad,fmt$(i.precio_unitario),i.descuento_pct+'%',fmt$(i.importe||0)]);
+    doc.autoTable({
+      head:[['Producto / Variante','Cant','P.Unit','Desc%','Importe']],
+      body:rows,
+      startY: 55,
+      theme: 'grid',
+      headStyles: { fillColor: [102, 126, 234] }
+    });
+
+    // Totales
+    let finalY = doc.lastAutoTable.finalY + 10;
+    doc.setFontSize(10);
+    doc.text(`Subtotal: ${fmt$(c.subtotal)}`, 190, finalY, {align: 'right'});
+    doc.text(`IVA (${c.iva_porcentaje}%): ${fmt$(c.iva)}`, 190, finalY + 6, {align: 'right'});
+    doc.setFontSize(12);
+    doc.text(`Total: ${fmt$(c.total)}`, 190, finalY + 14, {align: 'right'});
+
+    // Leyenda de Pie de Página
+    doc.setFontSize(8);
+    doc.setTextColor(100);
+    // Dividir la leyenda en múltiples líneas si es muy larga
+    const splitLeyenda = doc.splitTextToSize(empLeyenda, 170);
+    doc.text(splitLeyenda, 20, 275);
+
+    doc.save(`Cotizacion_${c.numero}.pdf`);
+  } catch(e) {
+    alert("Error al generar PDF: " + e.message);
+  }
 }
 
 // INVENTARIO
@@ -673,66 +799,74 @@ function openInvModal(){
 }
 
 async function guardarMovimiento(){
-  const pid=document.getElementById('m-inv-prod').value;
-  const tipo=document.getElementById('m-inv-tipo').value;
-  const cant=parseInt(document.getElementById('m-inv-cant').value)||0;
-  if(!pid||!cant)return alert('Producto y cantidad obligatorios');
-  
-  await SB.from('stock_movimientos').insert({producto_id:parseInt(pid),tipo,cantidad:cant,created_by:SESSION.id});
-  const p=DB.productos.find(x=>x.id===parseInt(pid));
-  if(p){
-    const delta=tipo==='entrada'?cant:tipo==='salida'?-cant:0;
-    await SB.from('productos').update({stock_actual:(tipo==='ajuste'?cant:p.stock_actual+delta)}).eq('id',pid);
-  }
-  cM('m-inv');await loadAll();rInventario();rDashboard();
+  try {
+    const pid=document.getElementById('m-inv-prod').value;
+    const tipo=document.getElementById('m-inv-tipo').value;
+    const cant=parseInt(document.getElementById('m-inv-cant').value)||0;
+    if(!pid||!cant)return alert('Producto y cantidad obligatorios');
+    
+    await SB.from('stock_movimientos').insert({producto_id:parseInt(pid),tipo,cantidad:cant,created_by:SESSION.id});
+    const p=DB.productos.find(x=>x.id===parseInt(pid));
+    if(p){
+      const delta=tipo==='entrada'?cant:tipo==='salida'?-cant:0;
+      await SB.from('productos').update({stock_actual:(tipo==='ajuste'?cant:p.stock_actual+delta)}).eq('id',pid);
+    }
+    cM('m-inv');await loadAll();rInventario();rDashboard();
+  } catch(e) { alert("Error guardando movimiento: " + e.message); }
 }
 
 // USUARIOS
 async function rUsuarios(){
   if(PERFIL?.rol!=='super_admin')return;
-  const {data:perfiles}=await SB.from('perfiles').select('*').order('creado_en',{ascending:false});
-  document.getElementById('usr-tbody').innerHTML=(perfiles||[]).map(p=>
-    `<tr><td>${p.usuario}</td><td>${p.rol==='super_admin'?'Super Admin':'Usuario'}</td>
-    <td>${p.activo?'Activo':'Inactivo'}</td>
-    <td>${p.id!==SESSION?.id?`<button class="btn-sm btn-primary" onclick="toggleUsr('${p.id}',${!p.activo})">${p.activo?'Desactivar':'Activar'}</button>`:'(tú)'}</td></tr>`
-  ).join('')||'<tr><td colspan="4" class="empty">Sin usuarios</td></tr>';
+  try {
+    const {data:perfiles}=await SB.from('perfiles').select('*').order('creado_en',{ascending:false});
+    document.getElementById('usr-tbody').innerHTML=(perfiles||[]).map(p=>
+      `<tr><td>${p.usuario}</td><td>${p.rol==='super_admin'?'Super Admin':'Usuario'}</td>
+      <td>${p.activo?'Activo':'Inactivo'}</td>
+      <td>${p.id!==SESSION?.id?`<button class="btn-sm btn-primary" onclick="toggleUsr('${p.id}',${!p.activo})">${p.activo?'Desactivar':'Activar'}</button>`:'(tú)'}</td></tr>`
+    ).join('')||'<tr><td colspan="4" class="empty">Sin usuarios</td></tr>';
+  } catch(e) { console.error("Error al leer usuarios:", e); }
 }
 
 function openUsrModal(){document.getElementById('m-usr-nombre').value='';document.getElementById('m-usr-pass').value='';oM('m-usr');}
 
 async function crearUsuario(){
   if(PERFIL?.rol!=='super_admin')return;
-  const usuario=document.getElementById('m-usr-nombre').value.trim();
-  const pass=document.getElementById('m-usr-pass').value;
-  const rol=document.getElementById('m-usr-rol').value;
-  if(!usuario||!pass||pass.length<8)return alert('Verifica los datos');
-  
-  const {data,error}=await SB.auth.signUp({email:usuario+'@erp.local',password:pass});
-  if(error)return alert(error.message);
-  await SB.from('perfiles').insert({id:data.user.id,usuario,rol,activo:true});
-  cM('m-usr');rUsuarios();
+  try {
+    const usuario=document.getElementById('m-usr-nombre').value.trim();
+    const pass=document.getElementById('m-usr-pass').value;
+    const rol=document.getElementById('m-usr-rol').value;
+    if(!usuario||!pass||pass.length<8)return alert('Verifica los datos');
+    
+    const {data,error}=await SB.auth.signUp({email:usuario+'@erp.local',password:pass});
+    if(error) throw error;
+    await SB.from('perfiles').insert({id:data.user.id,usuario,rol,activo:true});
+    cM('m-usr');rUsuarios();
+  } catch(e) { alert("Error creando usuario: " + e.message); }
 }
 
 async function toggleUsr(id,activo){
-  await SB.from('perfiles').update({activo}).eq('id',id);
-  rUsuarios();
+  try {
+    await SB.from('perfiles').update({activo}).eq('id',id);
+    rUsuarios();
+  } catch(e) { alert("Error modificando usuario: " + e.message); }
 }
 
 // ARRANQUE DE LA APLICACIÓN (INIT)
 (async function(){
-  let intentos=0;
-  while(!initSupabase() && intentos<50){ await new Promise(r=>setTimeout(r,100)); intentos++; }
-  const cs = document.getElementById('conn-status');
-  if(!SB){
-    if(cs){ cs.textContent='⚠️ No se pudo cargar Supabase (Verifica tu conexión a Internet)'; cs.style.color='#c33'; }
-    return;
-  } else {
-    if(cs){ cs.textContent='✅ Conectado a Supabase. Listo para iniciar.'; cs.style.color='#3c3'; }
-  }
-  
-  const saved=JSON.parse(localStorage.getItem('erp_session')||'null');
-  if(saved?.userId){
-    try{
+  try {
+    let intentos=0;
+    while(!initSupabase() && intentos<50){ await new Promise(r=>setTimeout(r,100)); intentos++; }
+    const cs = document.getElementById('conn-status');
+    if(!SB){
+      if(cs){ cs.textContent='⚠️ No se pudo cargar Supabase (Verifica tu conexión a Internet)'; cs.style.color='#c33'; }
+      return;
+    } else {
+      if(cs){ cs.textContent='✅ Conectado a Supabase. Listo para iniciar.'; cs.style.color='#3c3'; }
+    }
+    
+    const saved=JSON.parse(localStorage.getItem('erp_session')||'null');
+    if(saved?.userId){
       const {data:{user}}=await SB.auth.getUser();
       if(user){
         SESSION=user;
@@ -741,9 +875,12 @@ async function toggleUsr(id,activo){
         initApp();
         return;
       }
-    }catch(e){}
+    }
+    showScr('scr-unlock');
+  } catch (e) {
+    console.error("Error en inicialización:", e);
+    showScr('scr-unlock');
   }
-  showScr('scr-unlock');
 })();
 </script>
 </body>
