@@ -9,7 +9,15 @@
   <title>ERP - Comercializadora</title>
   
   <script>
-    console.log("Cargando ERP Versión: 1.0.13 - Folio Consecutivo Real");
+    console.log("Cargando ERP Versión: 1.0.14 - Alertas Stock Mínimo");
+    (function(){
+      if(!sessionStorage.getItem('erp_cache_bust')){
+        sessionStorage.setItem('erp_cache_bust','1');
+        var url=new URL(window.location.href);
+        url.searchParams.set('_cb',Date.now());
+        window.location.replace(url.toString());
+      }
+    })();
   </script>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -128,6 +136,15 @@
           <div class="card"><div class="card-title">Cotizaciones Mes</div><div class="card-value" id="db-cot-mes">0</div></div>
           <div class="card"><div class="card-title">Total Cotizado</div><div class="card-value" id="db-total">$0</div></div>
           <div class="card"><div class="card-title">Aceptadas</div><div class="card-value" id="db-acepta">0</div></div>
+          <div class="card" id="db-stock-card" style="display:none;border-left:4px solid #e74c3c;">
+            <div class="card-title">⚠️ Stock Bajo Mínimo</div>
+            <div class="card-value" id="db-stock-alerta" style="color:#e74c3c;">0</div>
+          </div>
+        </div>
+        <div id="db-stock-lista" style="margin-top:20px;display:none;">
+          <h3 style="color:#e74c3c;margin-bottom:10px;">⚠️ Productos bajo stock mínimo</h3>
+          <table><thead><tr><th>SKU</th><th>Producto</th><th>Stock Actual</th><th>Stock Mínimo</th></tr></thead>
+          <tbody id="db-stock-tbody"></tbody></table>
         </div>
       </div>
       <div id="vw-productos" class="vw">
@@ -422,13 +439,44 @@ function rDashboard(){
   document.getElementById('db-cot-mes').textContent=cotsMes.length;
   document.getElementById('db-total').textContent=fmt$(tot);
   document.getElementById('db-acepta').textContent=cotsMes.filter(c=>c.estado==='aceptada').length;
+
+  // Alertas stock mínimo
+  const bajoMinimo = DB.productos.filter(p => Number(p.stock_actual) <= Number(p.stock_minimo || 0));
+  const card = document.getElementById('db-stock-card');
+  const lista = document.getElementById('db-stock-lista');
+  if(bajoMinimo.length > 0){
+    card.style.display = '';
+    lista.style.display = '';
+    document.getElementById('db-stock-alerta').textContent = bajoMinimo.length;
+    document.getElementById('db-stock-tbody').innerHTML = bajoMinimo.map(p =>
+      `<tr style="background:#fff5f5;">
+        <td><code style="font-weight:bold;background:#fdd;padding:2px 6px;border-radius:3px;">${p.sku||'-'}</code></td>
+        <td>${p.nombre}</td>
+        <td style="color:#e74c3c;font-weight:bold;">${p.stock_actual}</td>
+        <td>${p.stock_minimo||0}</td>
+      </tr>`
+    ).join('');
+  } else {
+    card.style.display = 'none';
+    lista.style.display = 'none';
+  }
 }
 
 // PRODUCTOS
 function rProductos(){
-  document.getElementById('prod-tbody').innerHTML=DB.productos.map(p=>
-    `<tr><td><code style="font-weight:bold; background:#eaeaea; padding:2px 6px; border-radius:3px;">${p.sku || '-'}</code></td><td>${p.nombre}</td><td>${fmt$(p.precio_venta)}</td><td>${p.stock_actual}</td><td><button class="btn-sm btn-primary" onclick="editProd(${p.id})">Editar</button></td></tr>`
-  ).join('')||'<tr><td colspan="5" class="empty">Sin productos</td></tr>';
+  document.getElementById('prod-tbody').innerHTML=DB.productos.map(p=>{
+    const bajo = Number(p.stock_actual) <= Number(p.stock_minimo||0);
+    const stockCell = bajo
+      ? `<span style="color:#e74c3c;font-weight:bold;">⚠️ ${p.stock_actual}</span>`
+      : p.stock_actual;
+    return `<tr style="${bajo?'background:#fff5f5;':''}">
+      <td><code style="font-weight:bold;background:#eaeaea;padding:2px 6px;border-radius:3px;">${p.sku||'-'}</code></td>
+      <td>${p.nombre}</td>
+      <td>${fmt$(p.precio_venta)}</td>
+      <td>${stockCell}</td>
+      <td><button class="btn-sm btn-primary" onclick="editProd(${p.id})">Editar</button></td>
+    </tr>`;
+  }).join('')||'<tr><td colspan="5" class="empty">Sin productos</td></tr>';
 }
 
 function generarSKU(){
