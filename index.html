@@ -9,7 +9,7 @@
   <title>ERP - Comercializadora</title>
   
   <script>
-    console.log("Cargando ERP Versión: 1.0.14 - Alertas Stock Mínimo");
+    console.log("Cargando ERP Versión: 1.0.15 - Vencimiento Automático Cotizaciones");
     (function(){
       if(!sessionStorage.getItem('erp_cache_bust')){
         sessionStorage.setItem('erp_cache_bust','1');
@@ -60,7 +60,7 @@
     th,td{padding:12px;text-align:left;border-bottom:1px solid #ddd;}
     tbody tr:hover{background:#f9f9f9;}
     .badge{display:inline-block;padding:4px 8px;border-radius:3px;font-size:12px;font-weight:500;}
-    .bg{background:#d4edda;color:#155724;}.ba{background:#cfe2ff;color:#084298;}.br{background:#f8d7da;color:#842029;}.bgr{background:#e2e3e5;color:#383d41;}
+    .bg{background:#d4edda;color:#155724;}.ba{background:#cfe2ff;color:#084298;}.br{background:#f8d7da;color:#842029;}.bgr{background:#e2e3e5;color:#383d41;}.bv{background:#fff3cd;color:#856404;}
     .modal{display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);align-items:center;justify-content:center;z-index:1000;}
     .modal.open{display:flex;}
     .modal-content{background:white;padding:30px;border-radius:10px;width:90%;max-width:650px;max-height:90vh;overflow-y:auto;}
@@ -140,6 +140,10 @@
             <div class="card-title">⚠️ Stock Bajo Mínimo</div>
             <div class="card-value" id="db-stock-alerta" style="color:#e74c3c;">0</div>
           </div>
+          <div class="card" id="db-vencidas-card" style="display:none;border-left:4px solid #f39c12;">
+            <div class="card-title">🕐 Cotizaciones Vencidas</div>
+            <div class="card-value" id="db-vencidas" style="color:#f39c12;">0</div>
+          </div>
         </div>
         <div id="db-stock-lista" style="margin-top:20px;display:none;">
           <h3 style="color:#e74c3c;margin-bottom:10px;">⚠️ Productos bajo stock mínimo</h3>
@@ -160,7 +164,7 @@
       <div id="vw-cotizaciones" class="vw">
         <h2>Cotizaciones</h2>
         <button class="btn btn-primary" style="width:auto;" onclick="openCotModal()">+ Nueva Cotización</button>
-        <select id="cot-filtro" onchange="rCotizaciones()" style="padding:8px;margin-left:10px;"><option value="">Todos</option><option value="borrador">Borrador</option><option value="enviada">Enviada</option><option value="aceptada">Aceptada</option></select>
+        <select id="cot-filtro" onchange="rCotizaciones()" style="padding:8px;margin-left:10px;"><option value="">Todos</option><option value="borrador">Borrador</option><option value="enviada">Enviada</option><option value="aceptada">Aceptada</option><option value="vencida">Vencida</option></select>
         <table><thead><tr><th>Número</th><th>Cliente</th><th>Total</th><th>Estado</th><th>Acciones</th></tr></thead><tbody id="cot-tbody"></tbody></table>
       </div>
       <div id="vw-inventario" class="vw">
@@ -375,6 +379,7 @@ async function initApp(){
   document.querySelectorAll('.scr').forEach(s=>s.classList.remove('active'));
   document.getElementById('app').classList.add('active');
   await loadAll();
+  await verificarVencimientos();
   rDashboard();
 }
 
@@ -460,6 +465,31 @@ function rDashboard(){
     card.style.display = 'none';
     lista.style.display = 'none';
   }
+
+  // Cotizaciones vencidas
+  const vencidas = DB.cotizaciones.filter(c => c.estado === 'vencida');
+  const cardV = document.getElementById('db-vencidas-card');
+  if(vencidas.length > 0){
+    cardV.style.display = '';
+    document.getElementById('db-vencidas').textContent = vencidas.length;
+  } else {
+    cardV.style.display = 'none';
+  }
+}
+
+// Verifica cotizaciones vencidas al cargar y marca en Supabase
+async function verificarVencimientos(){
+  try {
+    const hoy = new Date().toISOString().split('T')[0];
+    const porVencer = DB.cotizaciones.filter(c =>
+      (c.estado === 'borrador' || c.estado === 'enviada') &&
+      c.vigencia && c.vigencia < hoy
+    );
+    for(const c of porVencer){
+      await SB.from('cotizaciones').update({ estado: 'vencida', updated_at: new Date().toISOString() }).eq('id', c.id);
+    }
+    if(porVencer.length > 0){ await loadAll(); }
+  } catch(e){ console.warn('Error verificando vencimientos:', e.message); }
 }
 
 // PRODUCTOS
@@ -652,10 +682,24 @@ function rCotizaciones(){
   const lista=f?DB.cotizaciones.filter(c=>c.estado===f):DB.cotizaciones;
   document.getElementById('cot-tbody').innerHTML=lista.map(c=>{
     const cli=DB.clientes.find(x=>x.id===c.cliente_id);
-    const badge=c.estado==='aceptada'?'bg':c.estado==='enviada'?'ba':c.estado==='rechazada'?'br':'bgr';
-    return `<tr><td>${c.numero}</td><td>${cli?cli.razon_social:'-'}</td><td>${fmt$(c.total)}</td><td><span class="badge ${badge}">${c.estado}</span></td>
-    <td><button class="btn-sm btn-primary" onclick="verCot(${c.id})">PDF</button>
-    ${PERFIL?.rol==='super_admin'||c.created_by===SESSION?.id?`<button class="btn-sm" onclick="cambiarEstadoCot(${c.id},'${c.estado==='borrador'?'enviada':c.estado==='enviada'?'aceptada':'borrador'}')">Cambiar</button>`:''}</td></tr>`;
+    const badge=c.estado==='aceptada'?'bg':c.estado==='enviada'?'ba':c.estado==='rechazada'?'br':c.estado==='vencida'?'bv':'bgr';
+    const puedeEditar = PERFIL?.rol==='super_admin' || c.created_by===SESSION?.id;
+    // Ciclo de estados: borrador→enviada→aceptada; vencidas solo pueden ir a borrador
+    const siguienteEstado = c.estado==='borrador'?'enviada':c.estado==='enviada'?'aceptada':c.estado==='vencida'?'borrador':'borrador';
+    const btnCambiar = (puedeEditar && c.estado!=='aceptada')
+      ? `<button class="btn-sm" onclick="cambiarEstadoCot(${c.id},'${siguienteEstado}')">Cambiar</button>` : '';
+    const btnRevertir = (puedeEditar && c.estado==='aceptada')
+      ? `<button class="btn-sm btn-danger" onclick="cambiarEstadoCot(${c.id},'borrador')">Revertir</button>` : '';
+    return `<tr>
+      <td>${c.numero}</td>
+      <td>${cli?cli.razon_social:'-'}</td>
+      <td>${fmt$(c.total)}</td>
+      <td><span class="badge ${badge}">${c.estado}</span></td>
+      <td>
+        <button class="btn-sm btn-primary" onclick="verCot(${c.id})">PDF</button>
+        ${btnCambiar}${btnRevertir}
+      </td>
+    </tr>`;
   }).join('')||'<tr><td colspan="5" class="empty">Sin cotizaciones</td></tr>';
 }
 
