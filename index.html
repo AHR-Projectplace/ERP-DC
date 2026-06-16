@@ -9,7 +9,7 @@
   <title>ERP - Comercializadora</title>
   
   <script>
-    console.log("Cargando ERP Versión: 1.0.15 - Vencimiento Automático Cotizaciones");
+    console.log("Cargando ERP Versión: 1.0.16 - Búsqueda, Clonar Cotización, Stock Mínimo Editable");
     (function(){
       if(!sessionStorage.getItem('erp_cache_bust')){
         sessionStorage.setItem('erp_cache_bust','1');
@@ -153,18 +153,27 @@
       </div>
       <div id="vw-productos" class="vw">
         <h2>Productos</h2>
-        <button class="btn btn-primary" style="width:auto;" onclick="openProdModal()">+ Nuevo Producto / Variante</button>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:5px;">
+          <button class="btn btn-primary" style="width:auto;" onclick="openProdModal()">+ Nuevo Producto / Variante</button>
+          <input type="text" id="prod-buscar" placeholder="🔍 Buscar por SKU o nombre..." oninput="rProductos()" style="padding:8px;border:1px solid #ddd;border-radius:5px;font-size:14px;flex:1;min-width:200px;">
+        </div>
         <table><thead><tr><th>SKU</th><th>Nombre / Variante</th><th>Precio Base</th><th>Stock</th><th>Acciones</th></tr></thead><tbody id="prod-tbody"></tbody></table>
       </div>
       <div id="vw-clientes" class="vw">
         <h2>Clientes</h2>
-        <button class="btn btn-primary" style="width:auto;" onclick="openCliModal()">+ Nuevo Cliente</button>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:5px;">
+          <button class="btn btn-primary" style="width:auto;" onclick="openCliModal()">+ Nuevo Cliente</button>
+          <input type="text" id="cli-buscar" placeholder="🔍 Buscar por razón social o RFC..." oninput="rClientes()" style="padding:8px;border:1px solid #ddd;border-radius:5px;font-size:14px;flex:1;min-width:200px;">
+        </div>
         <table><thead><tr><th>Razón Social</th><th>RFC</th><th>Lista Precios</th><th>Acciones</th></tr></thead><tbody id="cli-tbody"></tbody></table>
       </div>
       <div id="vw-cotizaciones" class="vw">
         <h2>Cotizaciones</h2>
-        <button class="btn btn-primary" style="width:auto;" onclick="openCotModal()">+ Nueva Cotización</button>
-        <select id="cot-filtro" onchange="rCotizaciones()" style="padding:8px;margin-left:10px;"><option value="">Todos</option><option value="borrador">Borrador</option><option value="enviada">Enviada</option><option value="aceptada">Aceptada</option><option value="vencida">Vencida</option></select>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:5px;">
+          <button class="btn btn-primary" style="width:auto;" onclick="openCotModal()">+ Nueva Cotización</button>
+          <select id="cot-filtro" onchange="rCotizaciones()" style="padding:8px;border:1px solid #ddd;border-radius:5px;font-size:14px;"><option value="">Todos</option><option value="borrador">Borrador</option><option value="enviada">Enviada</option><option value="aceptada">Aceptada</option><option value="vencida">Vencida</option></select>
+          <input type="text" id="cot-buscar" placeholder="🔍 Buscar por número o cliente..." oninput="rCotizaciones()" style="padding:8px;border:1px solid #ddd;border-radius:5px;font-size:14px;flex:1;min-width:200px;">
+        </div>
         <table><thead><tr><th>Número</th><th>Cliente</th><th>Total</th><th>Estado</th><th>Acciones</th></tr></thead><tbody id="cot-tbody"></tbody></table>
       </div>
       <div id="vw-inventario" class="vw">
@@ -202,6 +211,7 @@
   <div class="form-group"><label>Nombre / Variante *</label><input type="text" id="m-prod-nombre" placeholder="Ej. Tubo de Aluminio Estructural"></div>
   <div class="form-group"><label>Precio Venta Base *</label><input type="number" id="m-prod-precio" step="0.01"></div>
   <div class="form-group"><label>Stock Inicial</label><input type="number" id="m-prod-stock" value="0"></div>
+  <div class="form-group"><label>Stock Mínimo (alerta)</label><input type="number" id="m-prod-stock-min" value="5" min="0"></div>
   
   <div class="section-divider">
     <label>Asignación de Precios por Lista Comercial</label>
@@ -494,7 +504,11 @@ async function verificarVencimientos(){
 
 // PRODUCTOS
 function rProductos(){
-  document.getElementById('prod-tbody').innerHTML=DB.productos.map(p=>{
+  const q = (document.getElementById('prod-buscar')?.value||'').toLowerCase();
+  const lista = q ? DB.productos.filter(p =>
+    (p.sku||'').toLowerCase().includes(q) || (p.nombre||'').toLowerCase().includes(q)
+  ) : DB.productos;
+  document.getElementById('prod-tbody').innerHTML=lista.map(p=>{
     const bajo = Number(p.stock_actual) <= Number(p.stock_minimo||0);
     const stockCell = bajo
       ? `<span style="color:#e74c3c;font-weight:bold;">⚠️ ${p.stock_actual}</span>`
@@ -506,7 +520,7 @@ function rProductos(){
       <td>${stockCell}</td>
       <td><button class="btn-sm btn-primary" onclick="editProd(${p.id})">Editar</button></td>
     </tr>`;
-  }).join('')||'<tr><td colspan="5" class="empty">Sin productos</td></tr>';
+  }).join('')||'<tr><td colspan="5" class="empty">Sin resultados</td></tr>';
 }
 
 function generarSKU(){
@@ -523,8 +537,9 @@ function openProdModal(id){
   currentProdSpecs = {};
   currentProdPrices = {}; 
   
-  ['m-prod-sku','m-prod-nombre','m-prod-precio','m-prod-stock','m-prod-spec-key','m-prod-spec-val','m-prod-price-listname','m-prod-price-val'].forEach(k=>document.getElementById(k).value='');
+  ['m-prod-sku','m-prod-nombre','m-prod-precio','m-prod-stock','m-prod-stock-min','m-prod-spec-key','m-prod-spec-val','m-prod-price-listname','m-prod-price-val'].forEach(k=>document.getElementById(k).value='');
   document.getElementById('m-prod-stock').value='0';
+  document.getElementById('m-prod-stock-min').value='5';
   
   const esSuperAdmin = PERFIL?.rol === 'super_admin';
 
@@ -539,6 +554,7 @@ function openProdModal(id){
       document.getElementById('m-prod-nombre').value=p.nombre;
       document.getElementById('m-prod-precio').value=p.precio_venta;
       document.getElementById('m-prod-stock').value=p.stock_actual;
+      document.getElementById('m-prod-stock-min').value=p.stock_minimo||5;
       currentProdSpecs = p.especificaciones || {};
       const preciosFiltrados = DB.producto_precios.filter(x => x.producto_id === id);
       preciosFiltrados.forEach(pr => { currentProdPrices[pr.lista_nombre] = pr.precio; });
@@ -587,20 +603,21 @@ async function guardarProducto(){
     const nombre=document.getElementById('m-prod-nombre').value.trim();
     const precio=parseFloat(document.getElementById('m-prod-precio').value)||0;
     const stock=parseInt(document.getElementById('m-prod-stock').value)||0;
+    const stockMin=parseInt(document.getElementById('m-prod-stock-min').value)||0;
     
     if(!sku||!nombre||precio<=0) return alert('SKU, Nombre y precio base obligatorios');
     
     const existeSku = DB.productos.some(x => x.sku === sku && x.id !== currentProdId);
     if(existeSku) return alert('El SKU debe ser único. Ya existe en otro producto.');
 
-    const payload = { sku, nombre, precio_venta: precio, especificaciones: currentProdSpecs };
+    const payload = { sku, nombre, precio_venta: precio, especificaciones: currentProdSpecs, stock_minimo: stockMin };
     let targetId = currentProdId;
 
     if(currentProdId){
       const {error} = await SB.from('productos').update(payload).eq('id', currentProdId);
       if(error) throw error;
     } else {
-      payload.stock_actual = stock; payload.costo = 0; payload.stock_minimo = 5;
+      payload.stock_actual = stock; payload.costo = 0;
       const { data, error } = await SB.from('productos').insert(payload).select('id').single();
       if(error) throw error;
       targetId = data.id;
@@ -630,9 +647,13 @@ function editProd(id){openProdModal(id);}
 
 // CLIENTES
 function rClientes(){
-  document.getElementById('cli-tbody').innerHTML=DB.clientes.map(c=>
+  const q = (document.getElementById('cli-buscar')?.value||'').toLowerCase();
+  const lista = q ? DB.clientes.filter(c =>
+    (c.razon_social||'').toLowerCase().includes(q) || (c.rfc||'').toLowerCase().includes(q)
+  ) : DB.clientes;
+  document.getElementById('cli-tbody').innerHTML=lista.map(c=>
     `<tr><td>${c.razon_social}</td><td>${c.rfc||'-'}</td><td><span class="badge ba">${c.lista_precios||'general'}</span></td><td><button class="btn-sm btn-primary" onclick="editCli(${c.id})">Editar</button></td></tr>`
-  ).join('')||'<tr><td colspan="4" class="empty">Sin clientes</td></tr>';
+  ).join('')||'<tr><td colspan="4" class="empty">Sin resultados</td></tr>';
 }
 
 function openCliModal(id){
@@ -679,12 +700,16 @@ function editCli(id){openCliModal(id);}
 // COTIZACIONES
 function rCotizaciones(){
   const f=document.getElementById('cot-filtro').value;
-  const lista=f?DB.cotizaciones.filter(c=>c.estado===f):DB.cotizaciones;
+  const q=(document.getElementById('cot-buscar')?.value||'').toLowerCase();
+  let lista = f ? DB.cotizaciones.filter(c=>c.estado===f) : DB.cotizaciones;
+  if(q) lista = lista.filter(c=>{
+    const cli = DB.clientes.find(x=>x.id===c.cliente_id);
+    return (c.numero||'').toLowerCase().includes(q) || (cli?.razon_social||'').toLowerCase().includes(q);
+  });
   document.getElementById('cot-tbody').innerHTML=lista.map(c=>{
     const cli=DB.clientes.find(x=>x.id===c.cliente_id);
     const badge=c.estado==='aceptada'?'bg':c.estado==='enviada'?'ba':c.estado==='rechazada'?'br':c.estado==='vencida'?'bv':'bgr';
     const puedeEditar = PERFIL?.rol==='super_admin' || c.created_by===SESSION?.id;
-    // Ciclo de estados: borrador→enviada→aceptada; vencidas solo pueden ir a borrador
     const siguienteEstado = c.estado==='borrador'?'enviada':c.estado==='enviada'?'aceptada':c.estado==='vencida'?'borrador':'borrador';
     const btnCambiar = (puedeEditar && c.estado!=='aceptada')
       ? `<button class="btn-sm" onclick="cambiarEstadoCot(${c.id},'${siguienteEstado}')">Cambiar</button>` : '';
@@ -697,10 +722,46 @@ function rCotizaciones(){
       <td><span class="badge ${badge}">${c.estado}</span></td>
       <td>
         <button class="btn-sm btn-primary" onclick="verCot(${c.id})">PDF</button>
+        <button class="btn-sm" onclick="clonarCotizacion(${c.id})" title="Clonar">📋</button>
         ${btnCambiar}${btnRevertir}
       </td>
     </tr>`;
   }).join('')||'<tr><td colspan="5" class="empty">Sin cotizaciones</td></tr>';
+}
+
+async function clonarCotizacion(id){
+  try {
+    const original = DB.cotizaciones.find(x=>x.id===id);
+    if(!original) return;
+    const items = DB.cotizacion_items.filter(x=>x.cotizacion_id===id);
+
+    const anio = new Date().getFullYear();
+    const prefijo = `COT-${anio}-`;
+    const foliosAnio = DB.cotizaciones.map(c=>c.numero||'').filter(n=>n.startsWith(prefijo)).map(n=>parseInt(n.replace(prefijo,''))||0);
+    const siguiente = foliosAnio.length > 0 ? Math.max(...foliosAnio)+1 : 1;
+    const numero = prefijo + String(siguiente).padStart(3,'0');
+
+    const {data:nueva, error} = await SB.from('cotizaciones').insert({
+      numero, cliente_id: original.cliente_id,
+      fecha: new Date().toISOString().split('T')[0],
+      vigencia: new Date(Date.now()+15*86400000).toISOString().split('T')[0],
+      subtotal: original.subtotal, iva: original.iva,
+      iva_porcentaje: original.iva_porcentaje, total: original.total,
+      created_by: SESSION.id, estado: 'borrador'
+    }).select('id').single();
+    if(error) throw error;
+
+    if(items.length > 0){
+      const clonesItems = items.map(i=>({
+        cotizacion_id: nueva.id, producto_id: i.producto_id,
+        descripcion: i.descripcion, cantidad: i.cantidad,
+        precio_unitario: i.precio_unitario, descuento_pct: i.descuento_pct||0, importe: i.importe
+      }));
+      await SB.from('cotizacion_items').insert(clonesItems);
+    }
+    await loadAll(); rCotizaciones();
+    alert(`Cotización clonada como ${numero}`);
+  } catch(e){ alert('Error al clonar: '+e.message); }
 }
 
 function openCotModal(){
