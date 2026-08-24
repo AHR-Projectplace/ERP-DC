@@ -9,7 +9,7 @@
   <title>ERP - Comercializadora</title>
   
   <script>
-    console.log("Cargando ERP Versión: 1.0.16 - Búsqueda, Clonar Cotización, Stock Mínimo Editable");
+    console.log("Cargando ERP Versión: 1.0.17 - Seguridad: Auth por Email + RLS Supabase");
     (function(){
       if(!sessionStorage.getItem('erp_cache_bust')){
         sessionStorage.setItem('erp_cache_bust','1');
@@ -76,38 +76,17 @@
 </head>
 <body>
 
-<div id="scr-unlock" class="scr active">
-  <div class="auth-card">
-    <h2>🔐 Acceso ERP</h2>
-    <div class="form-group">
-      <label>Código de Acceso</label>
-      <input type="password" id="ue-code" placeholder="Ingresa código" onkeydown="if(event.key==='Enter')doUnlock()">
-    </div>
-    <button class="btn btn-primary" onclick="doUnlock()">Desbloquear</button>
-    <div id="ue-err" class="alert alert-danger">Código incorrecto</div>
-    <div id="conn-status" style="margin-top:10px;font-size:12px;color:#999;text-align:center;">Conectando con Supabase...</div>
-  </div>
-</div>
-
-<div id="scr-setup" class="scr">
-  <div class="auth-card">
-    <h2>⚙️ Crear Admin</h2>
-    <div class="form-group"><label>Usuario</label><input type="text" id="su-user" placeholder="usuario"></div>
-    <div class="form-group"><label>Contraseña (mín 8 caracteres)</label><input type="password" id="su-pass" placeholder="••••••••"></div>
-    <div class="form-group"><label>Confirmar</label><input type="password" id="su-pass2" placeholder="••••••••" onkeydown="if(event.key==='Enter')doSetup()"></div>
-    <button class="btn btn-primary" onclick="doSetup()">Crear Admin</button>
-    <div id="su-err" class="alert alert-danger"></div>
-  </div>
-</div>
-
-<div id="scr-login" class="scr">
+<div id="scr-login" class="scr active">
   <div class="auth-card">
     <h2>🔑 Iniciar Sesión</h2>
-    <div class="form-group"><label>Usuario</label><input type="text" id="lg-user" placeholder="usuario"></div>
+    <div class="form-group"><label>Correo electrónico</label><input type="email" id="lg-email" placeholder="correo@empresa.com" onkeydown="if(event.key==='Enter')doLogin()"></div>
     <div class="form-group"><label>Contraseña</label><input type="password" id="lg-pass" placeholder="••••••••" onkeydown="if(event.key==='Enter')doLogin()"></div>
     <button class="btn btn-primary" onclick="doLogin()">Entrar</button>
     <div id="lg-err" class="alert alert-danger"></div>
     <div id="lg-ok" class="alert alert-success"></div>
+    <div style="text-align:center;margin-top:12px;">
+      <a href="#" onclick="doForgotPassword()" style="font-size:13px;color:#667eea;">¿Olvidaste tu contraseña?</a>
+    </div>
   </div>
 </div>
 
@@ -267,11 +246,13 @@
 </div></div>
 
 <div id="m-usr" class="modal"><div class="modal-content">
-  <div class="modal-header"><h3>Usuario</h3><button class="modal-close" onclick="cM('m-usr')">×</button></div>
-  <div class="form-group"><label>Usuario</label><input type="text" id="m-usr-nombre"></div>
-  <div class="form-group"><label>Contraseña</label><input type="password" id="m-usr-pass"></div>
+  <div class="modal-header"><h3>Nuevo Usuario</h3><button class="modal-close" onclick="cM('m-usr')">×</button></div>
+  <div class="form-group"><label>Correo electrónico *</label><input type="email" id="m-usr-email" placeholder="correo@empresa.com"></div>
+  <div class="form-group"><label>Nombre (para mostrar) *</label><input type="text" id="m-usr-nombre" placeholder="Ej. Juan Pérez"></div>
   <div class="form-group"><label>Rol</label><select id="m-usr-rol"><option value="usuario">Usuario</option><option value="super_admin">Super Admin</option></select></div>
-  <button class="btn btn-primary" onclick="crearUsuario()">Crear</button>
+  <p style="font-size:12px;color:#666;margin-bottom:10px;">Se enviará un correo al usuario para que establezca su contraseña.</p>
+  <button class="btn btn-primary" onclick="crearUsuario()">Crear y Enviar Invitación</button>
+  <div id="m-usr-err" class="alert alert-danger"></div>
 </div></div>
 
 <script>
@@ -329,64 +310,51 @@ function sv(id){
   } catch(e) { console.error(e); alert("Error al cambiar de vista."); }
 }
 
-async function doUnlock(){
-  try {
-    const code = document.getElementById('ue-code').value.trim();
-    if(code !== 'ERP2025!'){ document.getElementById('ue-err').textContent='Código incorrecto'; document.getElementById('ue-err').classList.add('show'); return; }
-    document.getElementById('ue-err').classList.remove('show');
-    if(!SB){ document.getElementById('ue-err').textContent='Supabase no está listo todavía.'; document.getElementById('ue-err').classList.add('show'); return; }
-    
-    const {data: perfiles, error} = await SB.from('perfiles').select('id').limit(1);
-    if(error){ document.getElementById('ue-err').textContent='Error Supabase: '+error.message; document.getElementById('ue-err').classList.add('show'); return; }
-    showScr((perfiles&&perfiles.length)?'scr-login':'scr-setup');
-  } catch (e) { alert("Error crítico en Unlock: " + e.message); }
-}
-
-async function doSetup(){
-  try {
-    const usuario = document.getElementById('su-user').value.trim();
-    const pass = document.getElementById('su-pass').value;
-    if(!usuario||pass!==document.getElementById('su-pass2').value||pass.length<8){ document.getElementById('su-err').textContent='Verifica los datos (mín 8 caracteres)'; document.getElementById('su-err').classList.add('show'); return; }
-    const {data,error} = await SB.auth.signUp({email:usuario+'@erp.local',password:pass});
-    if(error){document.getElementById('su-err').textContent=error.message;document.getElementById('su-err').classList.add('show');return;}
-    await SB.from('perfiles').insert({id:data.user.id,usuario,rol:'super_admin',activo:true});
-    showScr('scr-login');
-    document.getElementById('lg-ok').textContent='Admin creado. Inicia sesión.';
-    document.getElementById('lg-ok').classList.add('show');
-    document.getElementById('lg-user').value=usuario;
-  } catch(e) { alert("Error en Setup: " + e.message); }
-}
-
 async function doLogin(){
   try {
-    const usuario = document.getElementById('lg-user').value.trim();
-    const pass = document.getElementById('lg-pass').value;
-    if(!usuario||!pass){document.getElementById('lg-err').textContent='Ingresa usuario y contraseña';document.getElementById('lg-err').classList.add('show');return;}
-    const {data,error} = await SB.auth.signInWithPassword({email:usuario+'@erp.local',password:pass});
-    if(error){document.getElementById('lg-err').textContent='Error: '+error.message;document.getElementById('lg-err').classList.add('show');return;}
-    SESSION=data.user;
-    const {data:perfil}=await SB.from('perfiles').select('*').eq('id',SESSION.id).single();
-    PERFIL=perfil;
-    localStorage.setItem('erp_session',JSON.stringify({userId:SESSION.id}));
+    const email = document.getElementById('lg-email').value.trim();
+    const pass  = document.getElementById('lg-pass').value;
+    const errEl = document.getElementById('lg-err');
+    errEl.classList.remove('show');
+    if(!email||!pass){ errEl.textContent='Ingresa correo y contraseña'; errEl.classList.add('show'); return; }
+    const {data, error} = await SB.auth.signInWithPassword({email, password: pass});
+    if(error){ errEl.textContent='Error: '+error.message; errEl.classList.add('show'); return; }
+    SESSION = data.user;
+    const {data: perfil, error: ep} = await SB.from('perfiles').select('*').eq('id', SESSION.id).single();
+    if(ep || !perfil){ await SB.auth.signOut(); errEl.textContent='Sin perfil asignado. Contacta al administrador.'; errEl.classList.add('show'); return; }
+    if(!perfil.activo){ await SB.auth.signOut(); errEl.textContent='Usuario inactivo. Contacta al administrador.'; errEl.classList.add('show'); return; }
+    PERFIL = perfil;
     initApp();
-  } catch(e) { alert("Error en Login: " + e.message); }
+  } catch(e) { alert("Error en login: " + e.message); }
+}
+
+async function doForgotPassword(){
+  const email = document.getElementById('lg-email').value.trim();
+  if(!email){ alert('Ingresa tu correo electrónico primero.'); return; }
+  try {
+    const {error} = await SB.auth.resetPasswordForEmail(email);
+    if(error) throw error;
+    const ok = document.getElementById('lg-ok');
+    ok.textContent = 'Correo de recuperación enviado a ' + email;
+    ok.classList.add('show');
+  } catch(e) { alert('Error: ' + e.message); }
 }
 
 async function doLogout(){
   await SB.auth.signOut();
-  SESSION=null;PERFIL=null;localStorage.removeItem('erp_session');
+  SESSION = null; PERFIL = null;
   document.getElementById('app').classList.remove('active');
-  showScr('scr-unlock');
+  showScr('scr-login');
 }
 
 async function initApp(){
-  document.getElementById('nu-name').textContent=PERFIL.usuario;
-  const r=document.getElementById('nu-role');
-  r.textContent=PERFIL.rol==='super_admin'?'Super Admin':'Usuario';
-  r.className='badge '+(PERFIL.rol==='super_admin'?'bg':'bgr');
-  document.getElementById('nb-usuarios').style.display=PERFIL.rol==='super_admin'?'':'none';
-  document.getElementById('nb-config').style.display=PERFIL.rol==='super_admin'?'':'none';
-  document.querySelectorAll('.scr').forEach(s=>s.classList.remove('active'));
+  document.getElementById('nu-name').textContent = PERFIL.usuario;
+  const r = document.getElementById('nu-role');
+  r.textContent = PERFIL.rol === 'super_admin' ? 'Super Admin' : 'Usuario';
+  r.className = 'badge ' + (PERFIL.rol === 'super_admin' ? 'bg' : 'bgr');
+  document.getElementById('nb-usuarios').style.display = PERFIL.rol === 'super_admin' ? '' : 'none';
+  document.getElementById('nb-config').style.display   = PERFIL.rol === 'super_admin' ? '' : 'none';
+  document.querySelectorAll('.scr').forEach(s => s.classList.remove('active'));
   document.getElementById('app').classList.add('active');
   await loadAll();
   await verificarVencimientos();
@@ -1045,32 +1013,59 @@ async function guardarMovimiento(){
 
 // USUARIOS
 async function rUsuarios(){
-  if(PERFIL?.rol!=='super_admin')return;
+  if(PERFIL?.rol!=='super_admin') return;
   try {
-    const {data:perfiles}=await SB.from('perfiles').select('*').order('creado_en',{ascending:false});
-    document.getElementById('usr-tbody').innerHTML=(perfiles||[]).map(p=>
-      `<tr><td>${p.usuario}</td><td>${p.rol==='super_admin'?'Super Admin':'Usuario'}</td>
-      <td>${p.activo?'Activo':'Inactivo'}</td>
-      <td>${p.id!==SESSION?.id?`<button class="btn-sm btn-primary" onclick="toggleUsr('${p.id}',${!p.activo})">${p.activo?'Desactivar':'Activar'}</button>`:'(tú)'}</td></tr>`
-    ).join('')||'<tr><td colspan="4" class="empty">Sin usuarios</td></tr>';
+    const {data: perfiles} = await SB.from('perfiles').select('*').order('creado_en', {ascending: false});
+    document.getElementById('usr-tbody').innerHTML = (perfiles||[]).map(p =>
+      `<tr>
+        <td>${p.usuario}</td>
+        <td>${p.rol==='super_admin'?'Super Admin':'Usuario'}</td>
+        <td>${p.activo?'<span class="badge bg">Activo</span>':'<span class="badge br">Inactivo</span>'}</td>
+        <td>${p.id!==SESSION?.id
+          ? `<button class="btn-sm btn-primary" onclick="toggleUsr('${p.id}',${!p.activo})">${p.activo?'Desactivar':'Activar'}</button>`
+          : '(tú)'}</td>
+      </tr>`
+    ).join('') || '<tr><td colspan="4" class="empty">Sin usuarios</td></tr>';
   } catch(e) { console.error("Error al leer usuarios:", e); }
 }
 
-function openUsrModal(){document.getElementById('m-usr-nombre').value='';document.getElementById('m-usr-pass').value='';oM('m-usr');}
+function openUsrModal(){
+  document.getElementById('m-usr-email').value='';
+  document.getElementById('m-usr-nombre').value='';
+  document.getElementById('m-usr-rol').value='usuario';
+  document.getElementById('m-usr-err').classList.remove('show');
+  oM('m-usr');
+}
 
 async function crearUsuario(){
-  if(PERFIL?.rol!=='super_admin')return;
+  if(PERFIL?.rol!=='super_admin') return;
   try {
-    const usuario=document.getElementById('m-usr-nombre').value.trim();
-    const pass=document.getElementById('m-usr-pass').value;
-    const rol=document.getElementById('m-usr-rol').value;
-    if(!usuario||!pass||pass.length<8)return alert('Verifica los datos');
-    
-    const {data,error}=await SB.auth.signUp({email:usuario+'@erp.local',password:pass});
+    const email  = document.getElementById('m-usr-email').value.trim();
+    const nombre = document.getElementById('m-usr-nombre').value.trim();
+    const rol    = document.getElementById('m-usr-rol').value;
+    const errEl  = document.getElementById('m-usr-err');
+    errEl.classList.remove('show');
+    if(!email||!nombre){ errEl.textContent='Correo y nombre son obligatorios'; errEl.classList.add('show'); return; }
+
+    // Crear usuario en Supabase Auth con contraseña temporal aleatoria
+    const tempPass = Math.random().toString(36).slice(-6) + Math.random().toString(36).slice(-6).toUpperCase() + '1!';
+    const {data, error} = await SB.auth.signUp({email, password: tempPass});
     if(error) throw error;
-    await SB.from('perfiles').insert({id:data.user.id,usuario,rol,activo:true});
-    cM('m-usr');rUsuarios();
-  } catch(e) { alert("Error creando usuario: " + e.message); }
+
+    // Registrar perfil
+    await SB.from('perfiles').insert({id: data.user.id, usuario: nombre, rol, activo: true});
+
+    // Enviar correo de reset para que el usuario establezca SU contraseña
+    await SB.auth.resetPasswordForEmail(email);
+
+    cM('m-usr');
+    rUsuarios();
+    alert(`✅ Usuario creado.\nSe envió un correo a ${email} para que establezca su contraseña.`);
+  } catch(e) { 
+    const errEl = document.getElementById('m-usr-err');
+    errEl.textContent = 'Error: ' + e.message;
+    errEl.classList.add('show');
+  }
 }
 
 async function toggleUsr(id,activo){
@@ -1083,31 +1078,32 @@ async function toggleUsr(id,activo){
 // ARRANQUE DE LA APLICACIÓN (INIT)
 (async function(){
   try {
-    let intentos=0;
-    while(!initSupabase() && intentos<50){ await new Promise(r=>setTimeout(r,100)); intentos++; }
-    const cs = document.getElementById('conn-status');
-    if(!SB){
-      if(cs){ cs.textContent='⚠️ No se pudo cargar Supabase (Verifica tu conexión a Internet)'; cs.style.color='#c33'; }
-      return;
-    } else {
-      if(cs){ cs.textContent='✅ Conectado a Supabase. Listo para iniciar.'; cs.style.color='#3c3'; }
-    }
-    
-    const saved=JSON.parse(localStorage.getItem('erp_session')||'null');
-    if(saved?.userId){
-      const {data:{user}}=await SB.auth.getUser();
-      if(user){
-        SESSION=user;
-        const {data:perfil}=await SB.from('perfiles').select('*').eq('id',user.id).single();
-        PERFIL=perfil;
+    let intentos = 0;
+    while(!initSupabase() && intentos < 50){ await new Promise(r => setTimeout(r, 100)); intentos++; }
+    if(!SB){ showScr('scr-login'); return; }
+
+    // Supabase gestiona su propia sesión en storage seguro
+    const { data: { session } } = await SB.auth.getSession();
+    if(session){
+      SESSION = session.user;
+      const {data: perfil} = await SB.from('perfiles').select('*').eq('id', SESSION.id).single();
+      if(perfil && perfil.activo){
+        PERFIL = perfil;
         initApp();
         return;
       }
+      // Perfil inactivo o no encontrado — cerrar sesión
+      await SB.auth.signOut();
     }
-    showScr('scr-unlock');
-  } catch (e) {
+    showScr('scr-login');
+
+    // Escuchar cambios de sesión (expiración, logout externo)
+    SB.auth.onAuthStateChange(async (event, session) => {
+      if(event === 'SIGNED_OUT'){ SESSION = null; PERFIL = null; document.getElementById('app').classList.remove('active'); showScr('scr-login'); }
+    });
+  } catch(e) {
     console.error("Error en inicialización:", e);
-    showScr('scr-unlock');
+    showScr('scr-login');
   }
 })();
 </script>
