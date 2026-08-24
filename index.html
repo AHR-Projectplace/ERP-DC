@@ -9,7 +9,7 @@
   <title>ERP - Comercializadora</title>
   
   <script>
-    console.log("Cargando ERP Versión: 1.0.22 - Fix: Bloqueo recovery antes de SIGNED_IN");
+    console.log("Cargando ERP Versión: 1.0.23 - Fix: redirectTo explícito + sessionStorage recovery");
     (function(){
       if(!sessionStorage.getItem('erp_cache_bust')){
         sessionStorage.setItem('erp_cache_bust','1');
@@ -342,7 +342,9 @@ async function doForgotPassword(){
   const email = document.getElementById('lg-email').value.trim();
   if(!email){ alert('Ingresa tu correo electrónico primero.'); return; }
   try {
-    const {error} = await SB.auth.resetPasswordForEmail(email);
+    const {error} = await SB.auth.resetPasswordForEmail(email, {
+      redirectTo: 'https://ahr-projectplace.github.io/ERP-DC/'
+    });
     if(error) throw error;
     const ok = document.getElementById('lg-ok');
     ok.textContent = 'Correo de recuperación enviado a ' + email;
@@ -1066,7 +1068,9 @@ async function crearUsuario(){
     await SB.from('perfiles').insert({id: data.user.id, usuario: nombre, rol, activo: true});
 
     // Enviar correo de reset para que el usuario establezca SU contraseña
-    await SB.auth.resetPasswordForEmail(email);
+    await SB.auth.resetPasswordForEmail(email, {
+      redirectTo: 'https://ahr-projectplace.github.io/ERP-DC/'
+    });
 
     cM('m-usr');
     rUsuarios();
@@ -1112,17 +1116,20 @@ async function doResetPassword(){
     while(!initSupabase() && intentos < 50){ await new Promise(r => setTimeout(r, 100)); intentos++; }
     if(!SB){ showScr('scr-login'); return; }
 
-    // Flag para detectar flujo de recovery desde el hash ANTES de que onAuthStateChange dispare
-    const esRecovery = window.location.hash.includes('type=recovery');
-    if(esRecovery){
+    // Capturar si es flujo recovery ANTES de que Supabase procese y limpie el hash
+    // Usamos sessionStorage para persistir el flag entre la carga inicial y el evento
+    const hashActual = window.location.hash;
+    if(hashActual.includes('type=recovery')){
+      sessionStorage.setItem('erp_recovery','1');
       window.history.replaceState(null, '', window.location.pathname + window.location.search);
     }
+    const esRecovery = sessionStorage.getItem('erp_recovery') === '1';
 
     let appIniciado = false;
     SB.auth.onAuthStateChange(async (event, session) => {
 
-      // Flujo de reset — nunca entrar al app
-      if(event === 'PASSWORD_RECOVERY' || (event === 'SIGNED_IN' && esRecovery)){
+      if(event === 'PASSWORD_RECOVERY' || (esRecovery && event === 'SIGNED_IN')){
+        sessionStorage.removeItem('erp_recovery');
         showScr('scr-login');
         oM('m-reset-pass');
         return;
@@ -1131,6 +1138,7 @@ async function doResetPassword(){
       if(event === 'SIGNED_OUT'){
         SESSION = null; PERFIL = null;
         appIniciado = false;
+        sessionStorage.removeItem('erp_recovery');
         document.getElementById('app').classList.remove('active');
         showScr('scr-login');
         return;
