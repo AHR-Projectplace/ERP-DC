@@ -9,7 +9,7 @@
   <title>ERP - Comercializadora</title>
   
   <script>
-    console.log("Cargando ERP Versión: 1.0.19 - Fix: Sidebar roles + Bloqueo sesión recovery");
+    console.log("Cargando ERP Versión: 1.0.20 - Fix: Modal usuarios ID faltante");
     (function(){
       if(!sessionStorage.getItem('erp_cache_bust')){
         sessionStorage.setItem('erp_cache_bust','1');
@@ -253,7 +253,9 @@
   <button class="btn btn-primary" onclick="doResetPassword()">Guardar contraseña</button>
   <div id="rp-err" class="alert alert-danger"></div>
   <div id="rp-ok" class="alert alert-success"></div>
-</div></div><div class="modal-content">
+</div></div>
+
+<div id="m-usr" class="modal"><div class="modal-content">
   <div class="modal-header"><h3>Nuevo Usuario</h3><button class="modal-close" onclick="cM('m-usr')">×</button></div>
   <div class="form-group"><label>Correo electrónico *</label><input type="email" id="m-usr-email" placeholder="correo@empresa.com"></div>
   <div class="form-group"><label>Nombre (para mostrar) *</label><input type="text" id="m-usr-nombre" placeholder="Ej. Juan Pérez"></div>
