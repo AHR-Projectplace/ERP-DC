@@ -1089,6 +1089,7 @@ async function toggleUsr(id,activo){
   } catch(e) { alert("Error modificando usuario: " + e.message); }
 }
 
+// ========== FUNCIONES MODIFICADAS PARA EL RESET DE CONTRASEÑA ==========
 async function doResetPassword(){
   try {
     const pass1 = document.getElementById('rp-pass1').value;
@@ -1102,12 +1103,20 @@ async function doResetPassword(){
     if(error) throw error;
     okEl.textContent = '✅ Contraseña actualizada. Inicia sesión.';
     okEl.classList.add('show');
+    
+    // Limpiar hash y bandera de recuperación
+    window.__recoveryMode = false;
+    if (window.location.hash) {
+      window.history.replaceState(null, '', window.location.pathname + window.location.search);
+    }
+    
     setTimeout(() => { cM('m-reset-pass'); showScr('scr-login'); }, 2000);
   } catch(e){ 
     document.getElementById('rp-err').textContent = 'Error: ' + e.message;
     document.getElementById('rp-err').classList.add('show');
   }
 }
+// ========== FIN DE FUNCIONES MODIFICADAS ==========
 
 // ARRANQUE DE LA APLICACIÓN (INIT)
 (async function(){
@@ -1115,6 +1124,21 @@ async function doResetPassword(){
     let intentos = 0;
     while(!initSupabase() && intentos < 50){ await new Promise(r => setTimeout(r, 100)); intentos++; }
     if(!SB){ showScr('scr-login'); return; }
+
+    // ========== DETECCIÓN MANUAL DEL HASH DE RECUPERACIÓN ==========
+    // Si la URL contiene un token de restablecimiento, forzamos el modal
+    const hash = window.location.hash;
+    if (hash && hash.includes('access_token')) {
+      window.__recoveryMode = true;
+      showScr('scr-login');
+      oM('m-reset-pass');
+      // Limpiamos campos por si acaso
+      document.getElementById('rp-pass1').value = '';
+      document.getElementById('rp-pass2').value = '';
+      document.getElementById('rp-err').classList.remove('show');
+      document.getElementById('rp-ok').classList.remove('show');
+    }
+    // ========== FIN DETECCIÓN ==========
 
     let appIniciado = false;
     let recoveryDetected = false;
@@ -1143,6 +1167,13 @@ async function doResetPassword(){
       }
 
       if((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') && session && !appIniciado){
+        // ========== MODIFICACIÓN: respetar la bandera de recuperación ==========
+        if (window.__recoveryMode) {
+          console.log('Modo recuperación activo, se ignora SIGNED_IN');
+          return;
+        }
+        // ========== FIN MODIFICACIÓN ==========
+
         // Esperar 300ms — si viene PASSWORD_RECOVERY después, lo bloquea
         await new Promise(r => setTimeout(r, 300));
         if(recoveryDetected) return;
