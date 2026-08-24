@@ -9,7 +9,7 @@
   <title>ERP - Comercializadora</title>
   
   <script>
-    console.log("Cargando ERP Versión: 1.0.21 - Fix: onAuthStateChange fuente única de sesión");
+    console.log("Cargando ERP Versión: 1.0.22 - Fix: Bloqueo recovery antes de SIGNED_IN");
     (function(){
       if(!sessionStorage.getItem('erp_cache_bust')){
         sessionStorage.setItem('erp_cache_bust','1');
@@ -1112,19 +1112,22 @@ async function doResetPassword(){
     while(!initSupabase() && intentos < 50){ await new Promise(r => setTimeout(r, 100)); intentos++; }
     if(!SB){ showScr('scr-login'); return; }
 
-    // onAuthStateChange como fuente única — se registra PRIMERO
-    // Supabase lo dispara inmediatamente con el estado actual al suscribirse
+    // Flag para detectar flujo de recovery desde el hash ANTES de que onAuthStateChange dispare
+    const esRecovery = window.location.hash.includes('type=recovery');
+    if(esRecovery){
+      window.history.replaceState(null, '', window.location.pathname + window.location.search);
+    }
+
     let appIniciado = false;
     SB.auth.onAuthStateChange(async (event, session) => {
 
-      // Flujo de reset de contraseña — nunca entrar al app
-      if(event === 'PASSWORD_RECOVERY'){
+      // Flujo de reset — nunca entrar al app
+      if(event === 'PASSWORD_RECOVERY' || (event === 'SIGNED_IN' && esRecovery)){
         showScr('scr-login');
         oM('m-reset-pass');
         return;
       }
 
-      // Cierre de sesión
       if(event === 'SIGNED_OUT'){
         SESSION = null; PERFIL = null;
         appIniciado = false;
@@ -1133,7 +1136,6 @@ async function doResetPassword(){
         return;
       }
 
-      // Sesión válida (SIGNED_IN o TOKEN_REFRESHED) — cargar app una sola vez
       if((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') && session && !appIniciado){
         SESSION = session.user;
         const {data: perfil} = await SB.from('perfiles').select('*').eq('id', SESSION.id).single();
@@ -1147,7 +1149,6 @@ async function doResetPassword(){
         return;
       }
 
-      // Sin sesión — mostrar login
       if(!session && !appIniciado){
         showScr('scr-login');
       }
