@@ -9,7 +9,7 @@
   <title>ERP - Comercializadora</title>
   
   <script>
-    console.log("Cargando ERP Versión: 1.0.18 - Hotfix: Flujo Reset Contraseña");
+    console.log("Cargando ERP Versión: 1.0.19 - Fix: Sidebar roles + Bloqueo sesión recovery");
     (function(){
       if(!sessionStorage.getItem('erp_cache_bust')){
         sessionStorage.setItem('erp_cache_bust','1');
@@ -105,8 +105,8 @@
       <button class="ntb" onclick="sv('clientes')">👥 Clientes</button>
       <button class="ntb" onclick="sv('cotizaciones')">📄 Cotizaciones</button>
       <button class="ntb" onclick="sv('inventario')">📊 Inventario</button>
-      <button class="ntb" id="nb-config" style="display:none;" onclick="sv('configuracion')">⚙️ Configuración</button>
-      <button class="ntb" id="nb-usuarios" style="display:none;" onclick="sv('usuarios')">👤 Usuarios</button>
+      <button class="ntb" id="nb-config" style="display:none!important;" onclick="sv('configuracion')">⚙️ Configuración</button>
+      <button class="ntb" id="nb-usuarios" style="display:none!important;" onclick="sv('usuarios')">👤 Usuarios</button>
     </div>
     <div class="content">
       <div id="vw-dashboard" class="vw active">
@@ -1113,17 +1113,31 @@ async function doResetPassword(){
     // Detectar si el usuario viene de un link de reset de contraseña
     const hash = window.location.hash;
     if(hash.includes('type=recovery')){
-      // Supabase ya cargó la sesión temporal desde el hash
       showScr('scr-login');
       oM('m-reset-pass');
-      // Limpiar hash de la URL sin recargar
       window.history.replaceState(null, '', window.location.pathname + window.location.search);
       return;
     }
 
-    // Supabase gestiona su propia sesión en storage seguro
+    // Escuchar cambios de sesión — bloquear auto-login en flujo recovery
+    SB.auth.onAuthStateChange(async (event, session) => {
+      if(event === 'PASSWORD_RECOVERY'){
+        // Sesión temporal de reset — mostrar modal, NO entrar al app
+        showScr('scr-login');
+        oM('m-reset-pass');
+        return;
+      }
+      if(event === 'SIGNED_OUT'){ 
+        SESSION = null; PERFIL = null; 
+        document.getElementById('app').classList.remove('active'); 
+        showScr('scr-login'); 
+      }
+    });
+
+    // Verificar sesión existente solo si NO es recovery
     const { data: { session } } = await SB.auth.getSession();
-    if(session){
+    if(session && session.user){
+      // Doble check: si el token tiene aal1 y no viene de recovery, es sesión legítima
       SESSION = session.user;
       const {data: perfil} = await SB.from('perfiles').select('*').eq('id', SESSION.id).single();
       if(perfil && perfil.activo){
@@ -1131,15 +1145,9 @@ async function doResetPassword(){
         initApp();
         return;
       }
-      // Perfil inactivo o no encontrado — cerrar sesión
       await SB.auth.signOut();
     }
     showScr('scr-login');
-
-    // Escuchar cambios de sesión (expiración, logout externo)
-    SB.auth.onAuthStateChange(async (event, session) => {
-      if(event === 'SIGNED_OUT'){ SESSION = null; PERFIL = null; document.getElementById('app').classList.remove('active'); showScr('scr-login'); }
-    });
   } catch(e) {
     console.error("Error en inicialización:", e);
     showScr('scr-login');
