@@ -9,7 +9,7 @@
   <title>ERP - Comercializadora</title>
   
   <script>
-    console.log("Cargando ERP Versión: 1.0.20 - Fix: Modal usuarios ID faltante");
+    console.log("Cargando ERP Versión: 1.0.21 - Fix: onAuthStateChange fuente única de sesión");
     (function(){
       if(!sessionStorage.getItem('erp_cache_bust')){
         sessionStorage.setItem('erp_cache_bust','1');
@@ -1112,44 +1112,46 @@ async function doResetPassword(){
     while(!initSupabase() && intentos < 50){ await new Promise(r => setTimeout(r, 100)); intentos++; }
     if(!SB){ showScr('scr-login'); return; }
 
-    // Detectar si el usuario viene de un link de reset de contraseña
-    const hash = window.location.hash;
-    if(hash.includes('type=recovery')){
-      showScr('scr-login');
-      oM('m-reset-pass');
-      window.history.replaceState(null, '', window.location.pathname + window.location.search);
-      return;
-    }
-
-    // Escuchar cambios de sesión — bloquear auto-login en flujo recovery
+    // onAuthStateChange como fuente única — se registra PRIMERO
+    // Supabase lo dispara inmediatamente con el estado actual al suscribirse
+    let appIniciado = false;
     SB.auth.onAuthStateChange(async (event, session) => {
+
+      // Flujo de reset de contraseña — nunca entrar al app
       if(event === 'PASSWORD_RECOVERY'){
-        // Sesión temporal de reset — mostrar modal, NO entrar al app
         showScr('scr-login');
         oM('m-reset-pass');
         return;
       }
-      if(event === 'SIGNED_OUT'){ 
-        SESSION = null; PERFIL = null; 
-        document.getElementById('app').classList.remove('active'); 
-        showScr('scr-login'); 
-      }
-    });
 
-    // Verificar sesión existente solo si NO es recovery
-    const { data: { session } } = await SB.auth.getSession();
-    if(session && session.user){
-      // Doble check: si el token tiene aal1 y no viene de recovery, es sesión legítima
-      SESSION = session.user;
-      const {data: perfil} = await SB.from('perfiles').select('*').eq('id', SESSION.id).single();
-      if(perfil && perfil.activo){
-        PERFIL = perfil;
-        initApp();
+      // Cierre de sesión
+      if(event === 'SIGNED_OUT'){
+        SESSION = null; PERFIL = null;
+        appIniciado = false;
+        document.getElementById('app').classList.remove('active');
+        showScr('scr-login');
         return;
       }
-      await SB.auth.signOut();
-    }
-    showScr('scr-login');
+
+      // Sesión válida (SIGNED_IN o TOKEN_REFRESHED) — cargar app una sola vez
+      if((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') && session && !appIniciado){
+        SESSION = session.user;
+        const {data: perfil} = await SB.from('perfiles').select('*').eq('id', SESSION.id).single();
+        if(perfil && perfil.activo){
+          PERFIL = perfil;
+          appIniciado = true;
+          initApp();
+        } else {
+          await SB.auth.signOut();
+        }
+        return;
+      }
+
+      // Sin sesión — mostrar login
+      if(!session && !appIniciado){
+        showScr('scr-login');
+      }
+    });
   } catch(e) {
     console.error("Error en inicialización:", e);
     showScr('scr-login');
