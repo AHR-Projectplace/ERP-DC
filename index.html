@@ -9,7 +9,7 @@
   <title>ERP - Comercializadora</title>
   
   <script>
-    console.log("Cargando ERP Versión: 1.0.17 - Seguridad: Auth por Email + RLS Supabase");
+    console.log("Cargando ERP Versión: 1.0.18 - Hotfix: Flujo Reset Contraseña");
     (function(){
       if(!sessionStorage.getItem('erp_cache_bust')){
         sessionStorage.setItem('erp_cache_bust','1');
@@ -245,7 +245,15 @@
   <button class="btn btn-primary" onclick="guardarMovimiento()">Guardar</button>
 </div></div>
 
-<div id="m-usr" class="modal"><div class="modal-content">
+<div id="m-reset-pass" class="modal"><div class="modal-content" style="max-width:400px;">
+  <div class="modal-header"><h3>🔑 Nueva Contraseña</h3></div>
+  <p style="margin-bottom:15px;color:#555;font-size:14px;">Ingresa tu nueva contraseña para acceder al ERP.</p>
+  <div class="form-group"><label>Nueva contraseña (mín. 8 caracteres)</label><input type="password" id="rp-pass1" placeholder="••••••••"></div>
+  <div class="form-group"><label>Confirmar contraseña</label><input type="password" id="rp-pass2" placeholder="••••••••" onkeydown="if(event.key==='Enter')doResetPassword()"></div>
+  <button class="btn btn-primary" onclick="doResetPassword()">Guardar contraseña</button>
+  <div id="rp-err" class="alert alert-danger"></div>
+  <div id="rp-ok" class="alert alert-success"></div>
+</div></div><div class="modal-content">
   <div class="modal-header"><h3>Nuevo Usuario</h3><button class="modal-close" onclick="cM('m-usr')">×</button></div>
   <div class="form-group"><label>Correo electrónico *</label><input type="email" id="m-usr-email" placeholder="correo@empresa.com"></div>
   <div class="form-group"><label>Nombre (para mostrar) *</label><input type="text" id="m-usr-nombre" placeholder="Ej. Juan Pérez"></div>
@@ -1075,12 +1083,43 @@ async function toggleUsr(id,activo){
   } catch(e) { alert("Error modificando usuario: " + e.message); }
 }
 
+async function doResetPassword(){
+  try {
+    const pass1 = document.getElementById('rp-pass1').value;
+    const pass2 = document.getElementById('rp-pass2').value;
+    const errEl = document.getElementById('rp-err');
+    const okEl  = document.getElementById('rp-ok');
+    errEl.classList.remove('show'); okEl.classList.remove('show');
+    if(pass1.length < 8){ errEl.textContent='Mínimo 8 caracteres'; errEl.classList.add('show'); return; }
+    if(pass1 !== pass2){ errEl.textContent='Las contraseñas no coinciden'; errEl.classList.add('show'); return; }
+    const {error} = await SB.auth.updateUser({password: pass1});
+    if(error) throw error;
+    okEl.textContent = '✅ Contraseña actualizada. Inicia sesión.';
+    okEl.classList.add('show');
+    setTimeout(() => { cM('m-reset-pass'); showScr('scr-login'); }, 2000);
+  } catch(e){ 
+    document.getElementById('rp-err').textContent = 'Error: ' + e.message;
+    document.getElementById('rp-err').classList.add('show');
+  }
+}
+
 // ARRANQUE DE LA APLICACIÓN (INIT)
 (async function(){
   try {
     let intentos = 0;
     while(!initSupabase() && intentos < 50){ await new Promise(r => setTimeout(r, 100)); intentos++; }
     if(!SB){ showScr('scr-login'); return; }
+
+    // Detectar si el usuario viene de un link de reset de contraseña
+    const hash = window.location.hash;
+    if(hash.includes('type=recovery')){
+      // Supabase ya cargó la sesión temporal desde el hash
+      showScr('scr-login');
+      oM('m-reset-pass');
+      // Limpiar hash de la URL sin recargar
+      window.history.replaceState(null, '', window.location.pathname + window.location.search);
+      return;
+    }
 
     // Supabase gestiona su propia sesión en storage seguro
     const { data: { session } } = await SB.auth.getSession();
