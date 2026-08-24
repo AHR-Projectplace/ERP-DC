@@ -9,7 +9,7 @@
   <title>ERP - Comercializadora</title>
   
   <script>
-    console.log("Cargando ERP Versión: 1.0.23 - Fix: redirectTo explícito + sessionStorage recovery");
+    console.log("Cargando ERP Versión: 1.0.24 - Fix definitivo: delay PASSWORD_RECOVERY");
     (function(){
       if(!sessionStorage.getItem('erp_cache_bust')){
         sessionStorage.setItem('erp_cache_bust','1');
@@ -1116,20 +1116,17 @@ async function doResetPassword(){
     while(!initSupabase() && intentos < 50){ await new Promise(r => setTimeout(r, 100)); intentos++; }
     if(!SB){ showScr('scr-login'); return; }
 
-    // Capturar si es flujo recovery ANTES de que Supabase procese y limpie el hash
-    // Usamos sessionStorage para persistir el flag entre la carga inicial y el evento
-    const hashActual = window.location.hash;
-    if(hashActual.includes('type=recovery')){
-      sessionStorage.setItem('erp_recovery','1');
-      window.history.replaceState(null, '', window.location.pathname + window.location.search);
-    }
-    const esRecovery = sessionStorage.getItem('erp_recovery') === '1';
-
     let appIniciado = false;
+    let recoveryDetected = false;
+
     SB.auth.onAuthStateChange(async (event, session) => {
 
-      if(event === 'PASSWORD_RECOVERY' || (esRecovery && event === 'SIGNED_IN')){
-        sessionStorage.removeItem('erp_recovery');
+      // PASSWORD_RECOVERY siempre tiene prioridad
+      if(event === 'PASSWORD_RECOVERY'){
+        recoveryDetected = true;
+        appIniciado = false;
+        SESSION = null; PERFIL = null;
+        document.getElementById('app').classList.remove('active');
         showScr('scr-login');
         oM('m-reset-pass');
         return;
@@ -1138,6 +1135,7 @@ async function doResetPassword(){
       if(event === 'SIGNED_OUT'){
         SESSION = null; PERFIL = null;
         appIniciado = false;
+        recoveryDetected = false;
         sessionStorage.removeItem('erp_recovery');
         document.getElementById('app').classList.remove('active');
         showScr('scr-login');
@@ -1145,6 +1143,10 @@ async function doResetPassword(){
       }
 
       if((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') && session && !appIniciado){
+        // Esperar 300ms — si viene PASSWORD_RECOVERY después, lo bloquea
+        await new Promise(r => setTimeout(r, 300));
+        if(recoveryDetected) return;
+
         SESSION = session.user;
         const {data: perfil} = await SB.from('perfiles').select('*').eq('id', SESSION.id).single();
         if(perfil && perfil.activo){
