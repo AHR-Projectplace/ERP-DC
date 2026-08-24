@@ -9,7 +9,7 @@
   <title>ERP - Comercializadora</title>
   
   <script>
-    console.log("Cargando ERP Versión: 1.0.24 - Fix definitivo: delay PASSWORD_RECOVERY");
+    console.log("Cargando ERP Versión: 1.0.26 - Carga masiva de productos vía Excel");
     (function(){
       if(!sessionStorage.getItem('erp_cache_bust')){
         sessionStorage.setItem('erp_cache_bust','1');
@@ -23,6 +23,7 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <style>
     *{margin:0;padding:0;box-sizing:border-box;}
     body{font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;background:#f5f5f5;color:#333;}
@@ -133,7 +134,9 @@
       <div id="vw-productos" class="vw">
         <h2>Productos</h2>
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:5px;">
-          <button class="btn btn-primary" style="width:auto;" onclick="openProdModal()">+ Nuevo Producto / Variante</button>
+          <button class="btn btn-primary" style="width:auto;" onclick="openProdModal()">+ Nuevo Producto</button>
+          <button class="btn" id="btn-import-prod" style="width:auto;display:none;background:#27ae60;color:white;" onclick="openImportModal()">📥 Importar Excel</button>
+          <button class="btn" id="btn-plantilla-prod" style="width:auto;display:none;background:#2980b9;color:white;" onclick="descargarPlantilla()">📋 Descargar Plantilla</button>
           <input type="text" id="prod-buscar" placeholder="🔍 Buscar por SKU o nombre..." oninput="rProductos()" style="padding:8px;border:1px solid #ddd;border-radius:5px;font-size:14px;flex:1;min-width:200px;">
         </div>
         <table><thead><tr><th>SKU</th><th>Nombre / Variante</th><th>Precio Base</th><th>Stock</th><th>Acciones</th></tr></thead><tbody id="prod-tbody"></tbody></table>
@@ -255,6 +258,34 @@
   <div id="rp-ok" class="alert alert-success"></div>
 </div></div>
 
+<div id="m-import" class="modal"><div class="modal-content" style="max-width:800px;">
+  <div class="modal-header"><h3>📥 Importar Productos desde Excel</h3><button class="modal-close" onclick="cM('m-import')">×</button></div>
+  <div id="import-step-1">
+    <p style="margin-bottom:12px;color:#555;font-size:14px;">Sube el archivo Excel con la plantilla de productos. Las filas con errores se omiten sin afectar las válidas.</p>
+    <div style="border:2px dashed #667eea;border-radius:8px;padding:30px;text-align:center;background:#f8f9ff;">
+      <div style="font-size:40px;margin-bottom:10px;">📄</div>
+      <p style="margin-bottom:15px;color:#667eea;font-weight:500;">Selecciona tu archivo .xlsx</p>
+      <input type="file" id="import-file" accept=".xlsx,.xls" onchange="procesarExcel(this)" style="display:none;">
+      <button class="btn btn-primary" style="width:auto;" onclick="document.getElementById('import-file').click()">Seleccionar archivo</button>
+    </div>
+    <div id="import-err" class="alert alert-danger" style="margin-top:10px;"></div>
+  </div>
+  <div id="import-step-2" style="display:none;">
+    <div id="import-resumen" style="margin-bottom:12px;padding:10px;background:#f0f4ff;border-radius:6px;font-size:14px;"></div>
+    <div style="max-height:300px;overflow-y:auto;">
+      <table style="margin-top:0;">
+        <thead><tr><th>#</th><th>SKU</th><th>Nombre</th><th>Precio</th><th>Stock</th><th>Stock Mín</th><th>Estado</th></tr></thead>
+        <tbody id="import-preview-tbody"></tbody>
+      </table>
+    </div>
+    <div style="display:flex;gap:10px;margin-top:15px;">
+      <button class="btn btn-primary" style="width:auto;" onclick="confirmarImport()">✅ Importar válidos</button>
+      <button class="btn" style="width:auto;background:#e74c3c;color:white;" onclick="resetImport()">Cancelar</button>
+    </div>
+    <div id="import-progress" style="display:none;margin-top:10px;font-size:14px;color:#667eea;"></div>
+  </div>
+</div></div>
+
 <div id="m-usr" class="modal"><div class="modal-content">
   <div class="modal-header"><h3>Nuevo Usuario</h3><button class="modal-close" onclick="cM('m-usr')">×</button></div>
   <div class="form-group"><label>Correo electrónico *</label><input type="email" id="m-usr-email" placeholder="correo@empresa.com"></div>
@@ -366,6 +397,9 @@ async function initApp(){
   r.className = 'badge ' + (PERFIL.rol === 'super_admin' ? 'bg' : 'bgr');
   document.getElementById('nb-usuarios').style.display = PERFIL.rol === 'super_admin' ? '' : 'none';
   document.getElementById('nb-config').style.display   = PERFIL.rol === 'super_admin' ? '' : 'none';
+  const esSA = PERFIL.rol === 'super_admin';
+  document.getElementById('btn-import-prod').style.display   = esSA ? '' : 'none';
+  document.getElementById('btn-plantilla-prod').style.display = esSA ? '' : 'none';
   document.querySelectorAll('.scr').forEach(s => s.classList.remove('active'));
   document.getElementById('app').classList.add('active');
   await loadAll();
@@ -625,7 +659,140 @@ async function eliminarProducto(){
 
 function editProd(id){openProdModal(id);}
 
-// CLIENTES
+// ── IMPORTACIÓN MASIVA DE PRODUCTOS ──────────────────────────────────────────
+
+function descargarPlantilla(){
+  const wb = XLSX.utils.book_new();
+  const headers = ['SKU','Nombre','Precio_Venta','Costo','Stock_Inicial','Stock_Minimo'];
+  const ejemplo = ['','Tubo Aluminio 2x6m',850,420,50,10];
+  const ejemplo2 = ['1234567890','Varilla Acero 3/8',320,180,100,20];
+  const ws = XLSX.utils.aoa_to_sheet([headers, ejemplo, ejemplo2]);
+
+  // Estilo de ancho de columnas
+  ws['!cols'] = [{wch:14},{wch:30},{wch:14},{wch:10},{wch:14},{wch:12}];
+
+  // Nota en fila 4
+  XLSX.utils.sheet_add_aoa(ws, [['* SKU vacío = se autogenera automáticamente']], {origin:'A4'});
+
+  XLSX.utils.book_append_sheet(wb, ws, 'Productos');
+  XLSX.writeFile(wb, 'plantilla_productos.xlsx');
+}
+
+let importData = []; // filas parseadas para preview
+
+function openImportModal(){
+  if(PERFIL?.rol !== 'super_admin') return;
+  resetImport();
+  oM('m-import');
+}
+
+function resetImport(){
+  importData = [];
+  document.getElementById('import-step-1').style.display = '';
+  document.getElementById('import-step-2').style.display = 'none';
+  document.getElementById('import-err').classList.remove('show');
+  document.getElementById('import-file').value = '';
+  document.getElementById('import-progress').style.display = 'none';
+}
+
+function procesarExcel(input){
+  const file = input.files[0];
+  if(!file) return;
+  const errEl = document.getElementById('import-err');
+  errEl.classList.remove('show');
+
+  const reader = new FileReader();
+  reader.onload = function(e){
+    try {
+      const wb = XLSX.read(e.target.result, {type:'binary'});
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, {defval:''});
+
+      if(!rows.length){ errEl.textContent='El archivo está vacío o no tiene el formato correcto.'; errEl.classList.add('show'); return; }
+
+      const requeridos = ['Nombre','Precio_Venta'];
+      const faltantes = requeridos.filter(c => !(c in rows[0]));
+      if(faltantes.length){ errEl.textContent='Columnas faltantes: '+faltantes.join(', '); errEl.classList.add('show'); return; }
+
+      importData = rows.map((row, i) => {
+        const errores = [];
+        const nombre = String(row['Nombre']||'').trim();
+        const precio = parseFloat(row['Precio_Venta'])||0;
+        const costo  = parseFloat(row['Costo'])||0;
+        const stock  = parseInt(row['Stock_Inicial'])||0;
+        const stockMin = parseInt(row['Stock_Minimo'])||0;
+        let sku = String(row['SKU']||'').trim();
+
+        if(!nombre) errores.push('Nombre vacío');
+        if(precio <= 0) errores.push('Precio inválido');
+        if(sku && DB.productos.some(p => p.sku === sku)) errores.push('SKU duplicado en BD');
+
+        // Autogenerar SKU si viene vacío
+        if(!sku && !errores.length) sku = '__AUTO__';
+
+        return { fila: i+2, sku, nombre, precio, costo, stock, stockMin, errores, valido: errores.length === 0 };
+      });
+
+      // Mostrar preview
+      const validos = importData.filter(r => r.valido).length;
+      const invalidos = importData.length - validos;
+      document.getElementById('import-resumen').innerHTML =
+        `<strong>${importData.length}</strong> filas leídas — <span style="color:#27ae60;font-weight:bold;">${validos} válidas</span>${invalidos>0?` — <span style="color:#e74c3c;font-weight:bold;">${invalidos} con errores (se omitirán)</span>`:''}`;
+
+      document.getElementById('import-preview-tbody').innerHTML = importData.map(r =>
+        `<tr style="${r.valido?'':'background:#fff5f5;'}">
+          <td>${r.fila}</td>
+          <td><code style="font-size:11px;">${r.sku==='__AUTO__'?'<em style="color:#999">autogen</em>':r.sku}</code></td>
+          <td>${r.nombre}</td>
+          <td>$${r.precio}</td>
+          <td>${r.stock}</td>
+          <td>${r.stockMin}</td>
+          <td>${r.valido?'<span class="badge bg">✓ OK</span>':'<span class="badge br">'+r.errores.join(', ')+'</span>'}</td>
+        </tr>`
+      ).join('');
+
+      document.getElementById('import-step-1').style.display = 'none';
+      document.getElementById('import-step-2').style.display = '';
+    } catch(e){
+      errEl.textContent = 'Error leyendo el archivo: '+e.message;
+      errEl.classList.add('show');
+    }
+  };
+  reader.readAsBinaryString(file);
+}
+
+async function confirmarImport(){
+  if(PERFIL?.rol !== 'super_admin') return;
+  const validos = importData.filter(r => r.valido);
+  if(!validos.length){ alert('No hay filas válidas para importar.'); return; }
+
+  const progEl = document.getElementById('import-progress');
+  progEl.style.display = '';
+  let ok = 0, err = 0;
+
+  for(const [i, row] of validos.entries()){
+    progEl.textContent = `Importando ${i+1} de ${validos.length}...`;
+    try {
+      let sku = row.sku === '__AUTO__' ? generarSKU() : row.sku;
+      await SB.from('productos').insert({
+        sku, nombre: row.nombre,
+        precio_venta: row.precio,
+        costo: row.costo,
+        stock_actual: row.stock,
+        stock_minimo: row.stockMin,
+        especificaciones: {}
+      });
+      ok++;
+    } catch(e){ err++; console.warn('Error fila '+row.fila, e.message); }
+  }
+
+  progEl.textContent = `✅ Importación completa: ${ok} productos insertados${err>0?`, ${err} con error`:''}`;
+  await loadAll();
+  rProductos();
+  setTimeout(()=>{ cM('m-import'); resetImport(); }, 2000);
+}
+
+
 function rClientes(){
   const q = (document.getElementById('cli-buscar')?.value||'').toLowerCase();
   const lista = q ? DB.clientes.filter(c =>
