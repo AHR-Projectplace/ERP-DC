@@ -9,7 +9,7 @@
   <title>ERP - Comercializadora</title>
   
   <script>
-    console.log("Cargando ERP Versión: 1.1.0 - MVP A1: Sistema SKU SDC por categoría");
+    console.log("Cargando ERP Versión: 1.1.1 - MVP A2: Costo + Proveedores + Precios por Cliente");
     (function(){
       if(!sessionStorage.getItem('erp_cache_bust')){
         sessionStorage.setItem('erp_cache_bust','1');
@@ -208,16 +208,30 @@
   <div class="form-group"><label>SKU (autogenerado)</label><input type="text" id="m-prod-sku" placeholder="Se genera al elegir categoría" readonly style="background:#f0f0f0;font-weight:bold;letter-spacing:1px;"></div>
   <div class="form-group"><label>Descripción / Nombre *</label><input type="text" id="m-prod-nombre" placeholder="Ej. Interruptor termomagnético QO 2x20A"></div>
   <div class="form-group"><label>Precio Venta Base *</label><input type="number" id="m-prod-precio" step="0.01"></div>
+  <div class="form-group"><label>Costo (precio de compra)</label><input type="number" id="m-prod-costo" step="0.01" value="0"></div>
   <div class="form-group"><label>Stock Inicial</label><input type="number" id="m-prod-stock" value="0"></div>
   <div class="form-group"><label>Stock Mínimo (alerta)</label><input type="number" id="m-prod-stock-min" value="5" min="0"></div>
-  
+
   <div class="section-divider">
-    <label>Asignación de Precios por Lista Comercial</label>
-    <div id="m-prod-prices-list" style="margin-bottom:10px; font-size:14px; background:#f9f9f9; padding:10px; border-radius:4px;"></div>
+    <label>Proveedores</label>
+    <div id="m-prod-provs-list" style="margin-bottom:10px;font-size:14px;background:#f9f9f9;padding:10px;border-radius:4px;"></div>
     <div class="flex-row-gap">
-      <input type="text" id="m-prod-price-listname" placeholder="Ej. VIP, Distribuidor" style="flex:1;">
+      <select id="m-prod-prov-sel" style="flex:1;padding:10px;border:1px solid #ddd;border-radius:5px;">
+        <option value="">— Selecciona proveedor —</option>
+      </select>
+      <button class="btn btn-primary" style="margin-top:0;width:auto;" onclick="addProdProveedor()">Agregar</button>
+    </div>
+  </div>
+
+  <div class="section-divider">
+    <label>Precios por Cliente</label>
+    <div id="m-prod-prices-list" style="margin-bottom:10px;font-size:14px;background:#f9f9f9;padding:10px;border-radius:4px;"></div>
+    <div class="flex-row-gap">
+      <select id="m-prod-price-cli" style="flex:1;padding:10px;border:1px solid #ddd;border-radius:5px;">
+        <option value="">— Selecciona cliente —</option>
+      </select>
       <input type="number" id="m-prod-price-val" placeholder="Precio ($)" step="0.01" style="flex:1;">
-      <button class="btn btn-primary" style="margin-top:0; width:auto;" onclick="addProdPriceList()">Vincular</button>
+      <button class="btn btn-primary" style="margin-top:0;width:auto;" onclick="addProdClientePrice()">Agregar</button>
     </div>
   </div>
 
@@ -360,13 +374,14 @@ function initSupabase(){
 }
 
 let SESSION = null, PERFIL = null;
-let DB = { productos:[], clientes:[], cotizaciones:[], cotizacion_items:[], stock_movimientos:[], producto_precios:[], categorias:[], subcategorias:[] };
+let DB = { productos:[], clientes:[], cotizaciones:[], cotizacion_items:[], stock_movimientos:[], producto_precios:[], categorias:[], subcategorias:[], proveedores:[], producto_proveedores:[] };
 let CONFIG_ERP = {};
 let cotLineas = [];
 
 let currentProdId = null;
 let currentProdSpecs = {};
-let currentProdPrices = {}; 
+let currentProdPrices = {}; // {cliente_id: precio}
+let currentProdProveedores = []; // [proveedor_id, ...]
 let currentCliId = null;
 
 function showScr(id){ document.querySelectorAll('.scr').forEach(s=>s.classList.remove('active')); document.getElementById(id).classList.add('active'); }
@@ -450,7 +465,7 @@ async function initApp(){
 
 async function loadAll(){
   try {
-    const [prod,cli,cot,items,movs,listasPrecios, conf, cats, subcats]=await Promise.all([
+    const [prod,cli,cot,items,movs,listasPrecios, conf, cats, subcats, provs, prodProvs]=await Promise.all([
       SB.from('productos').select('*').order('nombre'),
       SB.from('clientes').select('*').order('razon_social'),
       SB.from('cotizaciones').select('*').order('created_at',{ascending:false}),
@@ -459,7 +474,9 @@ async function loadAll(){
       SB.from('producto_precios').select('*'),
       SB.from('configuracion_erp').select('*').eq('id', 1).single(),
       SB.from('categorias').select('*').order('numero'),
-      SB.from('subcategorias').select('*').order('letra')
+      SB.from('subcategorias').select('*').order('letra'),
+      SB.from('proveedores').select('*').order('nombre'),
+      SB.from('producto_proveedores').select('*')
     ]);
     DB.productos=prod.data||[];
     DB.clientes=cli.data||[];
@@ -469,6 +486,8 @@ async function loadAll(){
     DB.producto_precios=listasPrecios.data||[];
     DB.categorias=cats.data||[];
     DB.subcategorias=subcats.data||[];
+    DB.proveedores=provs.data||[];
+    DB.producto_proveedores=prodProvs.data||[];
     CONFIG_ERP = conf.data || {};
   } catch(e) { 
     console.error("Aviso de Base de Datos: Algunas tablas podrían no existir o estar vacías.", e); 
@@ -732,9 +751,22 @@ function openProdModal(id){
   currentProdSpecs = {};
   currentProdPrices = {}; 
   
-  ['m-prod-sku','m-prod-nombre','m-prod-precio','m-prod-stock','m-prod-stock-min','m-prod-spec-key','m-prod-spec-val','m-prod-price-listname','m-prod-price-val'].forEach(k=>document.getElementById(k).value='');
+  ['m-prod-sku','m-prod-nombre','m-prod-precio','m-prod-costo','m-prod-stock','m-prod-stock-min','m-prod-spec-key','m-prod-spec-val','m-prod-price-val'].forEach(k=>document.getElementById(k).value='');
   document.getElementById('m-prod-stock').value='0';
   document.getElementById('m-prod-stock-min').value='5';
+  document.getElementById('m-prod-costo').value='0';
+
+  // Poblar dropdown de proveedores
+  const selProv = document.getElementById('m-prod-prov-sel');
+  selProv.innerHTML = '<option value="">— Selecciona proveedor —</option>' +
+    DB.proveedores.map(p => `<option value="${p.id}">${p.nombre}</option>`).join('');
+
+  // Poblar dropdown de clientes para precios
+  const selCli = document.getElementById('m-prod-price-cli');
+  selCli.innerHTML = '<option value="">— Selecciona cliente —</option>' +
+    DB.clientes.map(c => `<option value="${c.id}">${c.razon_social}</option>`).join('');
+
+  currentProdProveedores = [];
 
   poblarCategorias();
   document.getElementById('m-prod-categoria').value = '';
@@ -752,6 +784,7 @@ function openProdModal(id){
       document.getElementById('m-prod-sku').value=p.sku || '';
       document.getElementById('m-prod-nombre').value=p.nombre;
       document.getElementById('m-prod-precio').value=p.precio_venta;
+      document.getElementById('m-prod-costo').value=p.costo||0;
       document.getElementById('m-prod-stock').value=p.stock_actual;
       document.getElementById('m-prod-stock-min').value=p.stock_minimo||5;
       // Cargar categoría/subcategoría si el producto las tiene
@@ -761,8 +794,13 @@ function openProdModal(id){
         if(p.subcategoria_letra) document.getElementById('m-prod-subcategoria').value = p.subcategoria_letra;
       }
       currentProdSpecs = p.especificaciones || {};
-      const preciosFiltrados = DB.producto_precios.filter(x => x.producto_id === id);
-      preciosFiltrados.forEach(pr => { currentProdPrices[pr.lista_nombre] = pr.precio; });
+      // Precios por cliente
+      const preciosCli = DB.producto_precios.filter(x => x.producto_id === id && x.cliente_id);
+      preciosCli.forEach(pr => { currentProdPrices[pr.cliente_id] = pr.precio; });
+      // Proveedores asignados
+      currentProdProveedores = DB.producto_proveedores
+        .filter(pp => pp.producto_id === id)
+        .map(pp => pp.proveedor_id);
     }
   } else {
     document.getElementById('m-prod-title').textContent = 'Nuevo Producto';
@@ -787,17 +825,54 @@ function renderProdSpecs(){
   box.innerHTML = keys.map(k => `<div style="display:flex; justify-content:space-between; margin-bottom:5px; border-bottom:1px solid #ddd; padding-bottom:5px;"><span><b>${k}:</b> ${currentProdSpecs[k]}</span> <button class="btn-danger btn-sm" onclick="removeProdSpec('${k}')">×</button></div>`).join('');
 }
 
-function addProdPriceList(){
-  const lista = document.getElementById('m-prod-price-listname').value.trim();
-  const precio = parseFloat(document.getElementById('m-prod-price-val').value) || 0;
-  if(lista && precio > 0){ currentProdPrices[lista] = precio; document.getElementById('m-prod-price-listname').value = ''; document.getElementById('m-prod-price-val').value = ''; renderProdPrices(); }
+// Precios por cliente
+function addProdClientePrice(){
+  const cliId = document.getElementById('m-prod-price-cli').value;
+  const precio = parseFloat(document.getElementById('m-prod-price-val').value)||0;
+  if(!cliId){ alert('Selecciona un cliente'); return; }
+  if(precio <= 0){ alert('Ingresa un precio válido'); return; }
+  currentProdPrices[cliId] = precio;
+  document.getElementById('m-prod-price-val').value='';
+  document.getElementById('m-prod-price-cli').value='';
+  renderProdPrices();
 }
-function removeProdPriceList(lista){ delete currentProdPrices[lista]; renderProdPrices(); }
+function removeProdClientePrice(cliId){ delete currentProdPrices[cliId]; renderProdPrices(); }
 function renderProdPrices(){
   const box = document.getElementById('m-prod-prices-list');
-  const listas = Object.keys(currentProdPrices);
-  if(listas.length === 0){ box.innerHTML = '<span class="empty" style="padding:5px;">Sin precios específicos</span>'; return; }
-  box.innerHTML = listas.map(l => `<div style="display:flex; justify-content:space-between; margin-bottom:5px; border-bottom:1px solid #ddd; padding-bottom:5px;"><span><b>Lista [ ${l} ]:</b> ${fmt$(currentProdPrices[l])}</span> <button class="btn-danger btn-sm" onclick="removeProdPriceList('${l}')">×</button></div>`).join('');
+  const keys = Object.keys(currentProdPrices);
+  if(!keys.length){ box.innerHTML='<span class="empty" style="padding:5px;">Sin precios por cliente</span>'; return; }
+  box.innerHTML = keys.map(cliId => {
+    const cli = DB.clientes.find(c => c.id == cliId);
+    return `<div style="display:flex;justify-content:space-between;margin-bottom:5px;border-bottom:1px solid #ddd;padding-bottom:5px;">
+      <span><b>${cli ? cli.razon_social : cliId}:</b> ${fmt$(currentProdPrices[cliId])}</span>
+      <button class="btn-danger btn-sm" onclick="removeProdClientePrice('${cliId}')">×</button>
+    </div>`;
+  }).join('');
+}
+
+// Proveedores del producto
+function addProdProveedor(){
+  const provId = document.getElementById('m-prod-prov-sel').value;
+  if(!provId){ alert('Selecciona un proveedor'); return; }
+  if(currentProdProveedores.includes(provId)){ alert('Ya está agregado'); return; }
+  currentProdProveedores.push(provId);
+  document.getElementById('m-prod-prov-sel').value='';
+  renderProdProveedores();
+}
+function removeProdProveedor(provId){
+  currentProdProveedores = currentProdProveedores.filter(p => p !== provId);
+  renderProdProveedores();
+}
+function renderProdProveedores(){
+  const box = document.getElementById('m-prod-provs-list');
+  if(!currentProdProveedores.length){ box.innerHTML='<span class="empty" style="padding:5px;">Sin proveedores asignados</span>'; return; }
+  box.innerHTML = currentProdProveedores.map(provId => {
+    const prov = DB.proveedores.find(p => p.id === provId);
+    return `<div style="display:flex;justify-content:space-between;margin-bottom:5px;border-bottom:1px solid #ddd;padding-bottom:5px;">
+      <span>🏭 ${prov ? prov.nombre : provId}</span>
+      <button class="btn-danger btn-sm" onclick="removeProdProveedor('${provId}')">×</button>
+    </div>`;
+  }).join('');
 }
 
 async function guardarProducto(){
@@ -805,6 +880,7 @@ async function guardarProducto(){
     const sku=document.getElementById('m-prod-sku').value.trim().toUpperCase();
     const nombre=document.getElementById('m-prod-nombre').value.trim();
     const precio=parseFloat(document.getElementById('m-prod-precio').value)||0;
+    const costo=parseFloat(document.getElementById('m-prod-costo').value)||0;
     const stock=parseInt(document.getElementById('m-prod-stock').value)||0;
     const stockMin=parseInt(document.getElementById('m-prod-stock-min').value)||0;
     const catNum = document.getElementById('m-prod-categoria').value;
@@ -819,7 +895,7 @@ async function guardarProducto(){
     if(existeSku) return alert('El SKU debe ser único. Ya existe en otro producto.');
 
     const consecutivo = sku.length === 10 && sku.startsWith('SDC') ? parseInt(sku.slice(6)) : null;
-    const payload = { sku, nombre, precio_venta: precio, especificaciones: currentProdSpecs, stock_minimo: stockMin };
+    const payload = { sku, nombre, precio_venta: precio, costo, especificaciones: currentProdSpecs, stock_minimo: stockMin };
     if(catNum) payload.categoria_numero = catNum;
     if(subLetra) payload.subcategoria_letra = subLetra;
     if(consecutivo) payload.consecutivo = consecutivo;
@@ -829,16 +905,29 @@ async function guardarProducto(){
       const {error} = await SB.from('productos').update(payload).eq('id', currentProdId);
       if(error) throw error;
     } else {
-      payload.stock_actual = stock; payload.costo = 0;
+      payload.stock_actual = stock;
       const { data, error } = await SB.from('productos').insert(payload).select('id').single();
       if(error) throw error;
       targetId = data.id;
     }
-    
+
     if(targetId){
-      await SB.from('producto_precios').delete().eq('producto_id', targetId);
-      const insertsPrecios = Object.keys(currentProdPrices).map(lista => ({ producto_id: targetId, lista_nombre: lista, precio: currentProdPrices[lista] }));
-      if(insertsPrecios.length > 0){ await SB.from('producto_precios').insert(insertsPrecios); }
+      // Guardar precios por cliente
+      await SB.from('producto_precios').delete().eq('producto_id', targetId).not('cliente_id','is',null);
+      const insertsPrecios = Object.keys(currentProdPrices).map(cliId => ({
+        producto_id: targetId, cliente_id: cliId,
+        lista_nombre: DB.clientes.find(c=>c.id==cliId)?.razon_social||'cliente',
+        precio: currentProdPrices[cliId]
+      }));
+      if(insertsPrecios.length > 0) await SB.from('producto_precios').insert(insertsPrecios);
+
+      // Guardar proveedores
+      await SB.from('producto_proveedores').delete().eq('producto_id', targetId);
+      if(currentProdProveedores.length > 0){
+        await SB.from('producto_proveedores').insert(
+          currentProdProveedores.map(provId => ({ producto_id: targetId, proveedor_id: provId }))
+        );
+      }
     }
     
     cM('m-prod'); await loadAll(); rProductos();
@@ -861,19 +950,14 @@ function editProd(id){openProdModal(id);}
 
 function descargarPlantilla(){
   const wb = XLSX.utils.book_new();
-  const headers = ['SKU','Nombre','Precio_Venta','Costo','Stock_Inicial','Stock_Minimo'];
-  const ejemplo = ['','Tubo Aluminio 2x6m',850,420,50,10];
-  const ejemplo2 = ['1234567890','Varilla Acero 3/8',320,180,100,20];
-  const ws = XLSX.utils.aoa_to_sheet([headers, ejemplo, ejemplo2]);
-
-  // Estilo de ancho de columnas
-  ws['!cols'] = [{wch:14},{wch:30},{wch:14},{wch:10},{wch:14},{wch:12}];
-
-  // Nota en fila 4
-  XLSX.utils.sheet_add_aoa(ws, [['* SKU vacío = se autogenera automáticamente']], {origin:'A4'});
-
+  const headers = ['Categoria_Numero','Subcategoria_Letra','Nombre','Precio_Venta','Costo','Stock_Inicial','Stock_Minimo'];
+  const ejemplo  = ['09','I','Interruptor termomagnético QO 2x20A',850,420,50,10];
+  const ejemplo2 = ['04','T','Taquete ancla con tornillo 1/2" x 7"',45,22,200,30];
+  const nota     = ['* Categoria_Numero: 01-11 según catálogo SDC. Subcategoria_Letra: 1 carácter. Si la subcategoría no existe, créala primero en la app.'];
+  const ws = XLSX.utils.aoa_to_sheet([headers, ejemplo, ejemplo2, [], nota]);
+  ws['!cols'] = [{wch:18},{wch:20},{wch:40},{wch:14},{wch:10},{wch:14},{wch:12}];
   XLSX.utils.book_append_sheet(wb, ws, 'Productos');
-  XLSX.writeFile(wb, 'plantilla_productos.xlsx');
+  XLSX.writeFile(wb, 'plantilla_productos_sdc.xlsx');
 }
 
 let importData = []; // filas parseadas para preview
@@ -908,7 +992,7 @@ function procesarExcel(input){
 
       if(!rows.length){ errEl.textContent='El archivo está vacío o no tiene el formato correcto.'; errEl.classList.add('show'); return; }
 
-      const requeridos = ['Nombre','Precio_Venta'];
+      const requeridos = ['Nombre','Precio_Venta','Categoria_Numero','Subcategoria_Letra'];
       const faltantes = requeridos.filter(c => !(c in rows[0]));
       if(faltantes.length){ errEl.textContent='Columnas faltantes: '+faltantes.join(', '); errEl.classList.add('show'); return; }
 
@@ -919,16 +1003,18 @@ function procesarExcel(input){
         const costo  = parseFloat(row['Costo'])||0;
         const stock  = parseInt(row['Stock_Inicial'])||0;
         const stockMin = parseInt(row['Stock_Minimo'])||0;
-        let sku = String(row['SKU']||'').trim();
+        const catNum = String(row['Categoria_Numero']||'').trim().padStart(2,'0');
+        const subLetra = String(row['Subcategoria_Letra']||'').trim().toUpperCase();
 
         if(!nombre) errores.push('Nombre vacío');
         if(precio <= 0) errores.push('Precio inválido');
-        if(sku && DB.productos.some(p => p.sku === sku)) errores.push('SKU duplicado en BD');
+        if(!catNum || !DB.categorias.find(c=>c.numero===catNum)) errores.push('Categoría inválida');
+        if(!subLetra || !DB.subcategorias.find(s=>s.categoria_numero===catNum&&s.letra===subLetra)) errores.push('Subcategoría no existe');
 
-        // Autogenerar SKU si viene vacío
-        if(!sku && !errores.length) sku = '__AUTO__';
+        let sku = '';
+        if(!errores.length) sku = generarSKUSDC(catNum, subLetra);
 
-        return { fila: i+2, sku, nombre, precio, costo, stock, stockMin, errores, valido: errores.length === 0 };
+        return { fila: i+2, sku, catNum, subLetra, nombre, precio, costo, stock, stockMin, errores, valido: errores.length === 0 };
       });
 
       // Mostrar preview
@@ -940,7 +1026,7 @@ function procesarExcel(input){
       document.getElementById('import-preview-tbody').innerHTML = importData.map(r =>
         `<tr style="${r.valido?'':'background:#fff5f5;'}">
           <td>${r.fila}</td>
-          <td><code style="font-size:11px;">${r.sku==='__AUTO__'?'<em style="color:#999">autogen</em>':r.sku}</code></td>
+          <td><code style="font-size:11px;">${r.sku||'-'}</code></td>
           <td>${r.nombre}</td>
           <td>$${r.precio}</td>
           <td>${r.stock}</td>
@@ -971,13 +1057,16 @@ async function confirmarImport(){
   for(const [i, row] of validos.entries()){
     progEl.textContent = `Importando ${i+1} de ${validos.length}...`;
     try {
-      let sku = row.sku === '__AUTO__' ? generarSKU() : row.sku;
+      let sku = row.sku || generarSKUSDC(row.catNum, row.subLetra);
       await SB.from('productos').insert({
         sku, nombre: row.nombre,
         precio_venta: row.precio,
         costo: row.costo,
         stock_actual: row.stock,
         stock_minimo: row.stockMin,
+        categoria_numero: row.catNum,
+        subcategoria_letra: row.subLetra,
+        consecutivo: parseInt(sku.slice(6))||null,
         especificaciones: {}
       });
       ok++;
@@ -1128,17 +1217,16 @@ function addCotItem(){
 function obtenerPrecioParaCliente(producto_id, cliente_id) {
   if(!producto_id) return 0;
   const prod = DB.productos.find(p => p.id == producto_id);
-  const cli = DB.clientes.find(c => c.id == cliente_id);
   if(!prod) return 0;
-  
-  let precioAsignado = prod.precio_venta; 
-  if(cli && cli.lista_precios) {
-    const precioLista = DB.producto_precios.find(pp => pp.producto_id == producto_id && pp.lista_nombre === cli.lista_precios);
-    if(precioLista) {
-      precioAsignado = precioLista.precio;
-    }
-  }
-  return precioAsignado;
+
+  // 1. Precio específico por cliente (nuevo)
+  const precioCli = DB.producto_precios.find(pp =>
+    pp.producto_id == producto_id && pp.cliente_id == cliente_id
+  );
+  if(precioCli) return precioCli.precio;
+
+  // 2. Fallback: precio base del producto
+  return prod.precio_venta;
 }
 
 function actualizarPrecioLinea(index, selectElement) {
