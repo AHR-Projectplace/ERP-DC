@@ -9,7 +9,7 @@
   <title>ERP - Comercializadora</title>
   
   <script>
-    console.log("Cargando ERP Versión: 1.0.26 - Carga masiva de productos vía Excel");
+    console.log("Cargando ERP Versión: 1.1.0 - MVP A1: Sistema SKU SDC por categoría");
     (function(){
       if(!sessionStorage.getItem('erp_cache_bust')){
         sessionStorage.setItem('erp_cache_bust','1');
@@ -137,6 +137,7 @@
           <button class="btn btn-primary" style="width:auto;" onclick="openProdModal()">+ Nuevo Producto</button>
           <button class="btn" id="btn-import-prod" style="width:auto;display:none;background:#27ae60;color:white;" onclick="openImportModal()">📥 Importar Excel</button>
           <button class="btn" id="btn-plantilla-prod" style="width:auto;display:none;background:#2980b9;color:white;" onclick="descargarPlantilla()">📋 Descargar Plantilla</button>
+          <button class="btn" id="btn-cats-prod" style="width:auto;display:none;background:#8e44ad;color:white;" onclick="openCatsModal()">📂 Categorías</button>
           <input type="text" id="prod-buscar" placeholder="🔍 Buscar por SKU o nombre..." oninput="rProductos()" style="padding:8px;border:1px solid #ddd;border-radius:5px;font-size:14px;flex:1;min-width:200px;">
         </div>
         <table><thead><tr><th>SKU</th><th>Nombre / Variante</th><th>Precio Base</th><th>Stock</th><th>Acciones</th></tr></thead><tbody id="prod-tbody"></tbody></table>
@@ -189,8 +190,23 @@
 
 <div id="m-prod" class="modal"><div class="modal-content">
   <div class="modal-header"><h3 id="m-prod-title">Producto Industrial</h3><button class="modal-close" onclick="cM('m-prod')">×</button></div>
-  <div class="form-group"><label>SKU Único *</label><input type="text" id="m-prod-sku" placeholder="Ej. TUB-AL-2X6"></div>
-  <div class="form-group"><label>Nombre / Variante *</label><input type="text" id="m-prod-nombre" placeholder="Ej. Tubo de Aluminio Estructural"></div>
+  <div class="form-group">
+    <label>Categoría *</label>
+    <select id="m-prod-categoria" onchange="onCategoriaChange()" style="width:100%;padding:10px;border:1px solid #ddd;border-radius:5px;">
+      <option value="">— Selecciona categoría —</option>
+    </select>
+  </div>
+  <div class="form-group">
+    <label>Subcategoría *</label>
+    <div style="display:flex;gap:8px;">
+      <select id="m-prod-subcategoria" onchange="onSubcategoriaChange()" style="flex:1;padding:10px;border:1px solid #ddd;border-radius:5px;">
+        <option value="">— Selecciona subcategoría —</option>
+      </select>
+      <button class="btn" id="btn-nueva-subcat" style="margin-top:0;width:auto;background:#2980b9;color:white;display:none;" onclick="abrirNuevaSubcat()" title="Nueva subcategoría">+ Nueva</button>
+    </div>
+  </div>
+  <div class="form-group"><label>SKU (autogenerado)</label><input type="text" id="m-prod-sku" placeholder="Se genera al elegir categoría" readonly style="background:#f0f0f0;font-weight:bold;letter-spacing:1px;"></div>
+  <div class="form-group"><label>Descripción / Nombre *</label><input type="text" id="m-prod-nombre" placeholder="Ej. Interruptor termomagnético QO 2x20A"></div>
   <div class="form-group"><label>Precio Venta Base *</label><input type="number" id="m-prod-precio" step="0.01"></div>
   <div class="form-group"><label>Stock Inicial</label><input type="number" id="m-prod-stock" value="0"></div>
   <div class="form-group"><label>Stock Mínimo (alerta)</label><input type="number" id="m-prod-stock-min" value="5" min="0"></div>
@@ -258,6 +274,30 @@
   <div id="rp-ok" class="alert alert-success"></div>
 </div></div>
 
+<div id="m-nueva-subcat" class="modal"><div class="modal-content" style="max-width:450px;">
+  <div class="modal-header"><h3>Nueva Subcategoría</h3><button class="modal-close" onclick="cM('m-nueva-subcat')">×</button></div>
+  <p style="font-size:13px;color:#666;margin-bottom:12px;">Categoría: <strong id="ns-cat-nombre"></strong></p>
+  <div class="form-group"><label>Letra (1 carácter, única en la categoría) *</label><input type="text" id="ns-letra" maxlength="1" placeholder="Ej. I" style="text-transform:uppercase;"></div>
+  <div class="form-group"><label>Nombre de la subcategoría *</label><input type="text" id="ns-nombre" placeholder="Ej. Interruptores"></div>
+  <button class="btn btn-primary" onclick="guardarNuevaSubcat()">Crear Subcategoría</button>
+  <div id="ns-err" class="alert alert-danger"></div>
+</div></div>
+
+<div id="m-cats" class="modal"><div class="modal-content" style="max-width:700px;">
+  <div class="modal-header"><h3>📂 Gestión de Categorías SDC</h3><button class="modal-close" onclick="cM('m-cats')">×</button></div>
+  <div class="section-divider">
+    <label>Nueva Categoría</label>
+    <div class="flex-row-gap">
+      <input type="text" id="nc-nombre" placeholder="Nombre de la categoría" style="flex:1;">
+      <button class="btn btn-primary" style="margin-top:0;width:auto;" onclick="guardarNuevaCategoria()">+ Agregar</button>
+    </div>
+    <p style="font-size:12px;color:#888;margin-top:5px;">El número se asigna automáticamente (siguiente disponible).</p>
+  </div>
+  <div style="max-height:400px;overflow-y:auto;margin-top:15px;">
+    <table><thead><tr><th>N°</th><th>Categoría</th><th>Subcategorías</th></tr></thead><tbody id="cats-tbody"></tbody></table>
+  </div>
+</div></div>
+
 <div id="m-import" class="modal"><div class="modal-content" style="max-width:800px;">
   <div class="modal-header"><h3>📥 Importar Productos desde Excel</h3><button class="modal-close" onclick="cM('m-import')">×</button></div>
   <div id="import-step-1">
@@ -320,7 +360,7 @@ function initSupabase(){
 }
 
 let SESSION = null, PERFIL = null;
-let DB = { productos:[], clientes:[], cotizaciones:[], cotizacion_items:[], stock_movimientos:[], producto_precios:[] };
+let DB = { productos:[], clientes:[], cotizaciones:[], cotizacion_items:[], stock_movimientos:[], producto_precios:[], categorias:[], subcategorias:[] };
 let CONFIG_ERP = {};
 let cotLineas = [];
 
@@ -400,6 +440,7 @@ async function initApp(){
   const esSA = PERFIL.rol === 'super_admin';
   document.getElementById('btn-import-prod').style.display   = esSA ? '' : 'none';
   document.getElementById('btn-plantilla-prod').style.display = esSA ? '' : 'none';
+  document.getElementById('btn-cats-prod').style.display = esSA ? '' : 'none';
   document.querySelectorAll('.scr').forEach(s => s.classList.remove('active'));
   document.getElementById('app').classList.add('active');
   await loadAll();
@@ -409,14 +450,16 @@ async function initApp(){
 
 async function loadAll(){
   try {
-    const [prod,cli,cot,items,movs,listasPrecios, conf]=await Promise.all([
+    const [prod,cli,cot,items,movs,listasPrecios, conf, cats, subcats]=await Promise.all([
       SB.from('productos').select('*').order('nombre'),
       SB.from('clientes').select('*').order('razon_social'),
       SB.from('cotizaciones').select('*').order('created_at',{ascending:false}),
       SB.from('cotizacion_items').select('*'),
       SB.from('stock_movimientos').select('*').order('created_at',{ascending:false}),
       SB.from('producto_precios').select('*'),
-      SB.from('configuracion_erp').select('*').eq('id', 1).single()
+      SB.from('configuracion_erp').select('*').eq('id', 1).single(),
+      SB.from('categorias').select('*').order('numero'),
+      SB.from('subcategorias').select('*').order('letra')
     ]);
     DB.productos=prod.data||[];
     DB.clientes=cli.data||[];
@@ -424,6 +467,8 @@ async function loadAll(){
     DB.cotizacion_items=items.data||[];
     DB.stock_movimientos=movs.data||[];
     DB.producto_precios=listasPrecios.data||[];
+    DB.categorias=cats.data||[];
+    DB.subcategorias=subcats.data||[];
     CONFIG_ERP = conf.data || {};
   } catch(e) { 
     console.error("Aviso de Base de Datos: Algunas tablas podrían no existir o estar vacías.", e); 
@@ -537,6 +582,21 @@ function rProductos(){
   }).join('')||'<tr><td colspan="5" class="empty">Sin resultados</td></tr>';
 }
 
+// ── SISTEMA SKU SDC (por categoría/subcategoría) ─────────────────────────────
+
+// Genera el siguiente SKU SDC para una categoría+subcategoría
+function generarSKUSDC(catNumero, subLetra){
+  const prefijo = 'SDC' + catNumero + subLetra;
+  // Buscar consecutivo más alto usado en productos con ese prefijo
+  const existentes = DB.productos
+    .map(p => p.sku||'')
+    .filter(s => s.startsWith(prefijo) && s.length === 10)
+    .map(s => parseInt(s.slice(6)) || 0);
+  const siguiente = existentes.length > 0 ? Math.max(...existentes) + 1 : 1;
+  return prefijo + String(siguiente).padStart(4, '0');
+}
+
+// SKU legacy numérico (fallback para importación masiva sin categoría)
 function generarSKU(){
   let sku, intentos=0;
   do {
@@ -544,6 +604,127 @@ function generarSKU(){
     intentos++;
   } while(DB.productos.some(x=>x.sku===sku) && intentos<100);
   return sku;
+}
+
+// Poblar dropdown de categorías
+function poblarCategorias(){
+  const sel = document.getElementById('m-prod-categoria');
+  sel.innerHTML = '<option value="">— Selecciona categoría —</option>' +
+    DB.categorias.map(c => `<option value="${c.numero}">${c.numero} - ${c.nombre}</option>`).join('');
+}
+
+// Al cambiar categoría, poblar subcategorías
+function onCategoriaChange(){
+  const catNum = document.getElementById('m-prod-categoria').value;
+  const sel = document.getElementById('m-prod-subcategoria');
+  const btnNueva = document.getElementById('btn-nueva-subcat');
+  const esSuperAdmin = PERFIL?.rol === 'super_admin';
+
+  document.getElementById('m-prod-sku').value = '';
+  if(!catNum){
+    sel.innerHTML = '<option value="">— Selecciona subcategoría —</option>';
+    btnNueva.style.display = 'none';
+    return;
+  }
+  const subs = DB.subcategorias.filter(s => s.categoria_numero === catNum);
+  sel.innerHTML = '<option value="">— Selecciona subcategoría —</option>' +
+    subs.map(s => `<option value="${s.letra}">${s.letra} - ${s.nombre}</option>`).join('');
+  btnNueva.style.display = esSuperAdmin ? '' : 'none';
+}
+
+// Al cambiar subcategoría, generar SKU (solo en producto nuevo)
+function onSubcategoriaChange(){
+  if(currentProdId) return; // no regenerar en edición
+  const catNum = document.getElementById('m-prod-categoria').value;
+  const subLetra = document.getElementById('m-prod-subcategoria').value;
+  if(catNum && subLetra){
+    document.getElementById('m-prod-sku').value = generarSKUSDC(catNum, subLetra);
+  } else {
+    document.getElementById('m-prod-sku').value = '';
+  }
+}
+
+// Abrir modal de nueva subcategoría
+function abrirNuevaSubcat(){
+  const catNum = document.getElementById('m-prod-categoria').value;
+  if(!catNum){ alert('Selecciona primero una categoría.'); return; }
+  const cat = DB.categorias.find(c => c.numero === catNum);
+  document.getElementById('ns-cat-nombre').textContent = catNum + ' - ' + cat.nombre;
+  document.getElementById('ns-letra').value = '';
+  document.getElementById('ns-nombre').value = '';
+  document.getElementById('ns-err').classList.remove('show');
+  oM('m-nueva-subcat');
+}
+
+async function guardarNuevaSubcat(){
+  if(PERFIL?.rol !== 'super_admin') return;
+  try {
+    const catNum = document.getElementById('m-prod-categoria').value;
+    const letra = document.getElementById('ns-letra').value.trim().toUpperCase();
+    const nombre = document.getElementById('ns-nombre').value.trim();
+    const errEl = document.getElementById('ns-err');
+    errEl.classList.remove('show');
+
+    if(!letra || !nombre){ errEl.textContent='Letra y nombre obligatorios'; errEl.classList.add('show'); return; }
+    if(!/^[A-Z]$/.test(letra)){ errEl.textContent='La letra debe ser un solo carácter A-Z'; errEl.classList.add('show'); return; }
+
+    // Validar unicidad de letra dentro de la categoría
+    const existe = DB.subcategorias.some(s => s.categoria_numero === catNum && s.letra === letra);
+    if(existe){ errEl.textContent=`La letra "${letra}" ya está en uso en esta categoría`; errEl.classList.add('show'); return; }
+
+    const {error} = await SB.from('subcategorias').insert({ categoria_numero: catNum, letra, nombre });
+    if(error) throw error;
+
+    await loadAll();
+    cM('m-nueva-subcat');
+    onCategoriaChange(); // recargar dropdown
+    document.getElementById('m-prod-subcategoria').value = letra;
+    onSubcategoriaChange();
+  } catch(e){
+    document.getElementById('ns-err').textContent = 'Error: '+e.message;
+    document.getElementById('ns-err').classList.add('show');
+  }
+}
+
+// ── GESTIÓN DE CATEGORÍAS (modal admin) ──────────────────────────────────────
+
+function openCatsModal(){
+  if(PERFIL?.rol !== 'super_admin') return;
+  rCategorias();
+  document.getElementById('nc-nombre').value='';
+  oM('m-cats');
+}
+
+function rCategorias(){
+  document.getElementById('cats-tbody').innerHTML = DB.categorias.map(c => {
+    const subs = DB.subcategorias.filter(s => s.categoria_numero === c.numero);
+    const subsTxt = subs.length
+      ? subs.map(s => `<span class="badge ba" style="margin:2px;">${s.letra}: ${s.nombre}</span>`).join(' ')
+      : '<span style="color:#999;">Sin subcategorías</span>';
+    return `<tr><td><strong>${c.numero}</strong></td><td>${c.nombre}</td><td>${subsTxt}</td></tr>`;
+  }).join('') || '<tr><td colspan="3" class="empty">Sin categorías</td></tr>';
+}
+
+async function guardarNuevaCategoria(){
+  if(PERFIL?.rol !== 'super_admin') return;
+  try {
+    const nombre = document.getElementById('nc-nombre').value.trim();
+    if(!nombre){ alert('Ingresa el nombre de la categoría'); return; }
+
+    // Calcular siguiente número disponible
+    const nums = DB.categorias.map(c => parseInt(c.numero) || 0);
+    const siguiente = nums.length > 0 ? Math.max(...nums) + 1 : 1;
+    const numeroStr = String(siguiente).padStart(2, '0');
+
+    const {error} = await SB.from('categorias').insert({ numero: numeroStr, nombre });
+    if(error) throw error;
+
+    await loadAll();
+    rCategorias();
+    poblarCategorias();
+    document.getElementById('nc-nombre').value='';
+    alert(`Categoría "${numeroStr} - ${nombre}" creada.`);
+  } catch(e){ alert('Error: '+e.message); }
 }
 
 function openProdModal(id){
@@ -554,13 +735,17 @@ function openProdModal(id){
   ['m-prod-sku','m-prod-nombre','m-prod-precio','m-prod-stock','m-prod-stock-min','m-prod-spec-key','m-prod-spec-val','m-prod-price-listname','m-prod-price-val'].forEach(k=>document.getElementById(k).value='');
   document.getElementById('m-prod-stock').value='0';
   document.getElementById('m-prod-stock-min').value='5';
-  
+
+  poblarCategorias();
+  document.getElementById('m-prod-categoria').value = '';
+  document.getElementById('m-prod-subcategoria').innerHTML = '<option value="">— Selecciona subcategoría —</option>';
+  document.getElementById('btn-nueva-subcat').style.display = 'none';
+
   const esSuperAdmin = PERFIL?.rol === 'super_admin';
 
   if(id){
-    document.getElementById('m-prod-title').textContent = 'Editar Variante Industrial';
+    document.getElementById('m-prod-title').textContent = 'Editar Producto';
     document.getElementById('m-prod-stock').disabled = true; 
-    document.getElementById('m-prod-sku').disabled = !esSuperAdmin; 
     document.getElementById('btn-eliminar-prod').style.display = 'block';
     const p=DB.productos.find(x=>x.id===id);
     if(p){
@@ -569,15 +754,19 @@ function openProdModal(id){
       document.getElementById('m-prod-precio').value=p.precio_venta;
       document.getElementById('m-prod-stock').value=p.stock_actual;
       document.getElementById('m-prod-stock-min').value=p.stock_minimo||5;
+      // Cargar categoría/subcategoría si el producto las tiene
+      if(p.categoria_numero){
+        document.getElementById('m-prod-categoria').value = p.categoria_numero;
+        onCategoriaChange();
+        if(p.subcategoria_letra) document.getElementById('m-prod-subcategoria').value = p.subcategoria_letra;
+      }
       currentProdSpecs = p.especificaciones || {};
       const preciosFiltrados = DB.producto_precios.filter(x => x.producto_id === id);
       preciosFiltrados.forEach(pr => { currentProdPrices[pr.lista_nombre] = pr.precio; });
     }
   } else {
-    document.getElementById('m-prod-title').textContent = 'Nueva Variante Industrial';
+    document.getElementById('m-prod-title').textContent = 'Nuevo Producto';
     document.getElementById('m-prod-stock').disabled = false;
-    document.getElementById('m-prod-sku').value = generarSKU();
-    document.getElementById('m-prod-sku').disabled = !esSuperAdmin;
     document.getElementById('btn-eliminar-prod').style.display = 'none';
   }
   renderProdSpecs();
@@ -618,13 +807,22 @@ async function guardarProducto(){
     const precio=parseFloat(document.getElementById('m-prod-precio').value)||0;
     const stock=parseInt(document.getElementById('m-prod-stock').value)||0;
     const stockMin=parseInt(document.getElementById('m-prod-stock-min').value)||0;
-    
-    if(!sku||!nombre||precio<=0) return alert('SKU, Nombre y precio base obligatorios');
-    
+    const catNum = document.getElementById('m-prod-categoria').value;
+    const subLetra = document.getElementById('m-prod-subcategoria').value;
+
+    if(!nombre||precio<=0) return alert('Nombre y precio base obligatorios');
+    // Categoría/subcategoría obligatorias solo al crear (productos nuevos usan SDC)
+    if(!currentProdId && (!catNum || !subLetra)) return alert('Selecciona categoría y subcategoría');
+    if(!sku) return alert('No se generó el SKU. Verifica categoría y subcategoría.');
+
     const existeSku = DB.productos.some(x => x.sku === sku && x.id !== currentProdId);
     if(existeSku) return alert('El SKU debe ser único. Ya existe en otro producto.');
 
+    const consecutivo = sku.length === 10 && sku.startsWith('SDC') ? parseInt(sku.slice(6)) : null;
     const payload = { sku, nombre, precio_venta: precio, especificaciones: currentProdSpecs, stock_minimo: stockMin };
+    if(catNum) payload.categoria_numero = catNum;
+    if(subLetra) payload.subcategoria_letra = subLetra;
+    if(consecutivo) payload.consecutivo = consecutivo;
     let targetId = currentProdId;
 
     if(currentProdId){
