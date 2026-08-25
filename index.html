@@ -9,7 +9,7 @@
   <title>ERP - Comercializadora</title>
   
   <script>
-    console.log("Cargando ERP Versión: 1.1.1 - MVP A2: Costo + Proveedores + Precios por Cliente");
+    console.log("Cargando ERP Versión: 1.1.2 - MVP A3: Unidades de Medida");
     (function(){
       if(!sessionStorage.getItem('erp_cache_bust')){
         sessionStorage.setItem('erp_cache_bust','1');
@@ -140,7 +140,7 @@
           <button class="btn" id="btn-cats-prod" style="width:auto;display:none;background:#8e44ad;color:white;" onclick="openCatsModal()">📂 Categorías</button>
           <input type="text" id="prod-buscar" placeholder="🔍 Buscar por SKU o nombre..." oninput="rProductos()" style="padding:8px;border:1px solid #ddd;border-radius:5px;font-size:14px;flex:1;min-width:200px;">
         </div>
-        <table><thead><tr><th>SKU</th><th>Nombre / Variante</th><th>Precio Base</th><th>Stock</th><th>Acciones</th></tr></thead><tbody id="prod-tbody"></tbody></table>
+        <table><thead><tr><th>SKU</th><th>Nombre / Variante</th><th>Unidad</th><th>Precio Base</th><th>Stock</th><th>Acciones</th></tr></thead><tbody id="prod-tbody"></tbody></table>
       </div>
       <div id="vw-clientes" class="vw">
         <h2>Clientes</h2>
@@ -211,6 +211,15 @@
   <div class="form-group"><label>Costo (precio de compra)</label><input type="number" id="m-prod-costo" step="0.01" value="0"></div>
   <div class="form-group"><label>Stock Inicial</label><input type="number" id="m-prod-stock" value="0"></div>
   <div class="form-group"><label>Stock Mínimo (alerta)</label><input type="number" id="m-prod-stock-min" value="5" min="0"></div>
+  <div class="form-group">
+    <label>Unidad de Medida *</label>
+    <div style="display:flex;gap:8px;">
+      <select id="m-prod-unidad" style="flex:1;padding:10px;border:1px solid #ddd;border-radius:5px;">
+        <option value="">— Selecciona —</option>
+      </select>
+      <button class="btn" id="btn-nueva-um" style="margin-top:0;width:auto;background:#2980b9;color:white;display:none;" onclick="abrirNuevaUM()" title="Nueva unidad">+ Nueva</button>
+    </div>
+  </div>
 
   <div class="section-divider">
     <label>Proveedores</label>
@@ -286,6 +295,14 @@
   <button class="btn btn-primary" onclick="doResetPassword()">Guardar contraseña</button>
   <div id="rp-err" class="alert alert-danger"></div>
   <div id="rp-ok" class="alert alert-success"></div>
+</div></div>
+
+<div id="m-nueva-um" class="modal"><div class="modal-content" style="max-width:400px;">
+  <div class="modal-header"><h3>Nueva Unidad de Medida</h3><button class="modal-close" onclick="cM('m-nueva-um')">×</button></div>
+  <div class="form-group"><label>Nombre (ej. Tonelada) *</label><input type="text" id="num-nombre" placeholder="Tonelada"></div>
+  <div class="form-group"><label>Abreviación (ej. ton) *</label><input type="text" id="num-abrev" placeholder="ton" maxlength="5"></div>
+  <button class="btn btn-primary" onclick="guardarNuevaUM()">Crear</button>
+  <div id="num-err" class="alert alert-danger"></div>
 </div></div>
 
 <div id="m-nueva-subcat" class="modal"><div class="modal-content" style="max-width:450px;">
@@ -374,7 +391,7 @@ function initSupabase(){
 }
 
 let SESSION = null, PERFIL = null;
-let DB = { productos:[], clientes:[], cotizaciones:[], cotizacion_items:[], stock_movimientos:[], producto_precios:[], categorias:[], subcategorias:[], proveedores:[], producto_proveedores:[] };
+let DB = { productos:[], clientes:[], cotizaciones:[], cotizacion_items:[], stock_movimientos:[], producto_precios:[], categorias:[], subcategorias:[], proveedores:[], producto_proveedores:[], unidades_medida:[] };
 let CONFIG_ERP = {};
 let cotLineas = [];
 
@@ -465,7 +482,7 @@ async function initApp(){
 
 async function loadAll(){
   try {
-    const [prod,cli,cot,items,movs,listasPrecios, conf, cats, subcats, provs, prodProvs]=await Promise.all([
+    const [prod,cli,cot,items,movs,listasPrecios, conf, cats, subcats, provs, prodProvs, ums]=await Promise.all([
       SB.from('productos').select('*').order('nombre'),
       SB.from('clientes').select('*').order('razon_social'),
       SB.from('cotizaciones').select('*').order('created_at',{ascending:false}),
@@ -476,7 +493,8 @@ async function loadAll(){
       SB.from('categorias').select('*').order('numero'),
       SB.from('subcategorias').select('*').order('letra'),
       SB.from('proveedores').select('*').order('nombre'),
-      SB.from('producto_proveedores').select('*')
+      SB.from('producto_proveedores').select('*'),
+      SB.from('unidades_medida').select('*').order('nombre')
     ]);
     DB.productos=prod.data||[];
     DB.clientes=cli.data||[];
@@ -488,6 +506,7 @@ async function loadAll(){
     DB.subcategorias=subcats.data||[];
     DB.proveedores=provs.data||[];
     DB.producto_proveedores=prodProvs.data||[];
+    DB.unidades_medida=ums.data||[];
     CONFIG_ERP = conf.data || {};
   } catch(e) { 
     console.error("Aviso de Base de Datos: Algunas tablas podrían no existir o estar vacías.", e); 
@@ -594,6 +613,7 @@ function rProductos(){
     return `<tr style="${bajo?'background:#fff5f5;':''}">
       <td><code style="font-weight:bold;background:#eaeaea;padding:2px 6px;border-radius:3px;">${p.sku||'-'}</code></td>
       <td>${p.nombre}</td>
+      <td><span class="badge bgr">${p.unidad_medida||'pza'}</span></td>
       <td>${fmt$(p.precio_venta)}</td>
       <td>${stockCell}</td>
       <td><button class="btn-sm btn-primary" onclick="editProd(${p.id})">Editar</button></td>
@@ -601,7 +621,47 @@ function rProductos(){
   }).join('')||'<tr><td colspan="5" class="empty">Sin resultados</td></tr>';
 }
 
-// ── SISTEMA SKU SDC (por categoría/subcategoría) ─────────────────────────────
+// ── UNIDADES DE MEDIDA ───────────────────────────────────────────────────────
+
+function poblarUnidades(){
+  const sel = document.getElementById('m-prod-unidad');
+  const val = sel.value; // preservar selección actual
+  sel.innerHTML = '<option value="">— Selecciona —</option>' +
+    DB.unidades_medida.map(u => `<option value="${u.nombre}">${u.nombre} (${u.abreviacion})</option>`).join('');
+  if(val) sel.value = val;
+}
+
+function abrirNuevaUM(){
+  document.getElementById('num-nombre').value='';
+  document.getElementById('num-abrev').value='';
+  document.getElementById('num-err').classList.remove('show');
+  oM('m-nueva-um');
+}
+
+async function guardarNuevaUM(){
+  if(PERFIL?.rol !== 'super_admin') return;
+  try {
+    const nombre = document.getElementById('num-nombre').value.trim();
+    const abreviacion = document.getElementById('num-abrev').value.trim().toLowerCase();
+    const errEl = document.getElementById('num-err');
+    errEl.classList.remove('show');
+    if(!nombre||!abreviacion){ errEl.textContent='Nombre y abreviación obligatorios'; errEl.classList.add('show'); return; }
+    if(DB.unidades_medida.some(u=>u.nombre.toLowerCase()===nombre.toLowerCase())){
+      errEl.textContent='Ya existe una unidad con ese nombre'; errEl.classList.add('show'); return;
+    }
+    const {error} = await SB.from('unidades_medida').insert({nombre, abreviacion});
+    if(error) throw error;
+    await loadAll();
+    poblarUnidades();
+    document.getElementById('m-prod-unidad').value = nombre;
+    cM('m-nueva-um');
+  } catch(e){
+    document.getElementById('num-err').textContent='Error: '+e.message;
+    document.getElementById('num-err').classList.add('show');
+  }
+}
+
+
 
 // Genera el siguiente SKU SDC para una categoría+subcategoría
 function generarSKUSDC(catNumero, subLetra){
@@ -755,6 +815,7 @@ function openProdModal(id){
   document.getElementById('m-prod-stock').value='0';
   document.getElementById('m-prod-stock-min').value='5';
   document.getElementById('m-prod-costo').value='0';
+  document.getElementById('m-prod-unidad').value='Pieza';
 
   // Poblar dropdown de proveedores
   const selProv = document.getElementById('m-prod-prov-sel');
@@ -769,6 +830,9 @@ function openProdModal(id){
   currentProdProveedores = [];
 
   poblarCategorias();
+  poblarUnidades();
+  document.getElementById('m-prod-unidad').value = '';
+  document.getElementById('btn-nueva-um').style.display = PERFIL?.rol === 'super_admin' ? '' : 'none';
   document.getElementById('m-prod-categoria').value = '';
   document.getElementById('m-prod-subcategoria').innerHTML = '<option value="">— Selecciona subcategoría —</option>';
   document.getElementById('btn-nueva-subcat').style.display = 'none';
@@ -787,6 +851,7 @@ function openProdModal(id){
       document.getElementById('m-prod-costo').value=p.costo||0;
       document.getElementById('m-prod-stock').value=p.stock_actual;
       document.getElementById('m-prod-stock-min').value=p.stock_minimo||5;
+      document.getElementById('m-prod-unidad').value=p.unidad_medida||'Pieza';
       // Cargar categoría/subcategoría si el producto las tiene
       if(p.categoria_numero){
         document.getElementById('m-prod-categoria').value = p.categoria_numero;
@@ -883,6 +948,7 @@ async function guardarProducto(){
     const costo=parseFloat(document.getElementById('m-prod-costo').value)||0;
     const stock=parseInt(document.getElementById('m-prod-stock').value)||0;
     const stockMin=parseInt(document.getElementById('m-prod-stock-min').value)||0;
+    const unidad=document.getElementById('m-prod-unidad').value||'Pieza';
     const catNum = document.getElementById('m-prod-categoria').value;
     const subLetra = document.getElementById('m-prod-subcategoria').value;
 
@@ -895,7 +961,7 @@ async function guardarProducto(){
     if(existeSku) return alert('El SKU debe ser único. Ya existe en otro producto.');
 
     const consecutivo = sku.length === 10 && sku.startsWith('SDC') ? parseInt(sku.slice(6)) : null;
-    const payload = { sku, nombre, precio_venta: precio, costo, especificaciones: currentProdSpecs, stock_minimo: stockMin };
+    const payload = { sku, nombre, precio_venta: precio, costo, especificaciones: currentProdSpecs, stock_minimo: stockMin, unidad_medida: unidad };
     if(catNum) payload.categoria_numero = catNum;
     if(subLetra) payload.subcategoria_letra = subLetra;
     if(consecutivo) payload.consecutivo = consecutivo;
