@@ -9,7 +9,7 @@
   <title>ERP - Comercializadora</title>
   
   <script>
-    console.log("Cargando ERP Versión: 1.1.3 - MVP B: Módulo Proveedores");
+    console.log("Cargando ERP Versión: 1.1.4 - MVP C1: Validación stock + Descuentos por volumen");
     (function(){
       if(!sessionStorage.getItem('erp_cache_bust')){
         sessionStorage.setItem('erp_cache_bust','1');
@@ -232,7 +232,18 @@
   </div>
 
   <div class="section-divider">
-    <label>Proveedores</label>
+    <label>Descuentos por Volumen</label>
+    <div id="m-prod-dvol-list" style="margin-bottom:10px;font-size:14px;background:#f9f9f9;padding:10px;border-radius:4px;"></div>
+    <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+      <input type="number" id="m-prod-dv-min" placeholder="Cant. mín" min="1" style="width:90px;padding:8px;border:1px solid #ddd;border-radius:5px;">
+      <span style="color:#666;font-size:13px;">—</span>
+      <input type="number" id="m-prod-dv-max" placeholder="Cant. máx (vacío=sin límite)" min="1" style="flex:1;padding:8px;border:1px solid #ddd;border-radius:5px;">
+      <input type="number" id="m-prod-dv-pct" placeholder="% desc" min="0.01" max="100" step="0.01" style="width:80px;padding:8px;border:1px solid #ddd;border-radius:5px;">
+      <button class="btn btn-primary" style="margin-top:0;width:auto;" onclick="addDvolLinea()">+ Rango</button>
+    </div>
+  </div>
+
+  <div class="section-divider">
     <div id="m-prod-provs-list" style="margin-bottom:10px;font-size:14px;background:#f9f9f9;padding:10px;border-radius:4px;"></div>
     <div class="flex-row-gap">
       <select id="m-prod-prov-sel" style="flex:1;padding:10px;border:1px solid #ddd;border-radius:5px;">
@@ -412,7 +423,7 @@ function initSupabase(){
 }
 
 let SESSION = null, PERFIL = null;
-let DB = { productos:[], clientes:[], cotizaciones:[], cotizacion_items:[], stock_movimientos:[], producto_precios:[], categorias:[], subcategorias:[], proveedores:[], producto_proveedores:[], unidades_medida:[] };
+let DB = { productos:[], clientes:[], cotizaciones:[], cotizacion_items:[], stock_movimientos:[], producto_precios:[], categorias:[], subcategorias:[], proveedores:[], producto_proveedores:[], unidades_medida:[], descuentos_volumen:[] };
 let CONFIG_ERP = {};
 let cotLineas = [];
 
@@ -505,7 +516,7 @@ async function initApp(){
 
 async function loadAll(){
   try {
-    const [prod,cli,cot,items,movs,listasPrecios, conf, cats, subcats, provs, prodProvs, ums]=await Promise.all([
+    const [prod,cli,cot,items,movs,listasPrecios, conf, cats, subcats, provs, prodProvs, ums, dvs]=await Promise.all([
       SB.from('productos').select('*').order('nombre'),
       SB.from('clientes').select('*').order('razon_social'),
       SB.from('cotizaciones').select('*').order('created_at',{ascending:false}),
@@ -517,7 +528,8 @@ async function loadAll(){
       SB.from('subcategorias').select('*').order('letra'),
       SB.from('proveedores').select('*').order('nombre'),
       SB.from('producto_proveedores').select('*'),
-      SB.from('unidades_medida').select('*').order('nombre')
+      SB.from('unidades_medida').select('*').order('nombre'),
+      SB.from('descuentos_volumen').select('*').order('cantidad_min')
     ]);
     DB.productos=prod.data||[];
     DB.clientes=cli.data||[];
@@ -530,6 +542,7 @@ async function loadAll(){
     DB.proveedores=provs.data||[];
     DB.producto_proveedores=prodProvs.data||[];
     DB.unidades_medida=ums.data||[];
+    DB.descuentos_volumen=dvs.data||[];
     CONFIG_ERP = conf.data || {};
   } catch(e) { 
     console.error("Aviso de Base de Datos: Algunas tablas podrían no existir o estar vacías.", e); 
@@ -644,7 +657,43 @@ function rProductos(){
   }).join('')||'<tr><td colspan="5" class="empty">Sin resultados</td></tr>';
 }
 
-// ── MÓDULO PROVEEDORES ────────────────────────────────────────────────────────
+// ── DESCUENTOS POR VOLUMEN ────────────────────────────────────────────────────
+
+let currentProdDvol = []; // [{cantidad_min, cantidad_max, descuento_pct, id?}]
+
+function addDvolLinea(){
+  const min = parseInt(document.getElementById('m-prod-dv-min').value)||0;
+  const max = document.getElementById('m-prod-dv-max').value ? parseInt(document.getElementById('m-prod-dv-max').value) : null;
+  const pct = parseFloat(document.getElementById('m-prod-dv-pct').value)||0;
+  if(min <= 0 || pct <= 0){ alert('Cantidad mínima y descuento deben ser mayores a 0'); return; }
+  if(max && max < min){ alert('La cantidad máxima debe ser mayor o igual a la mínima'); return; }
+  currentProdDvol.push({ cantidad_min: min, cantidad_max: max, descuento_pct: pct });
+  currentProdDvol.sort((a,b) => a.cantidad_min - b.cantidad_min);
+  ['m-prod-dv-min','m-prod-dv-max','m-prod-dv-pct'].forEach(k => document.getElementById(k).value='');
+  renderDvol();
+}
+
+function removeDvolLinea(idx){ currentProdDvol.splice(idx,1); renderDvol(); }
+
+function renderDvol(){
+  const box = document.getElementById('m-prod-dvol-list');
+  if(!currentProdDvol.length){ box.innerHTML='<span class="empty" style="padding:5px;">Sin descuentos por volumen</span>'; return; }
+  box.innerHTML = currentProdDvol.map((d,i) =>
+    `<div style="display:flex;justify-content:space-between;margin-bottom:5px;border-bottom:1px solid #ddd;padding-bottom:5px;">
+      <span>${d.cantidad_min}${d.cantidad_max ? ' – '+d.cantidad_max : '+'} uds → <b>${d.descuento_pct}% desc</b></span>
+      <button class="btn-danger btn-sm" onclick="removeDvolLinea(${i})">×</button>
+    </div>`
+  ).join('');
+}
+
+function obtenerDescuentoVolumen(prod_id, cantidad){
+  const rangos = DB.descuentos_volumen
+    .filter(d => d.producto_id == prod_id && cantidad >= d.cantidad_min && (d.cantidad_max === null || cantidad <= d.cantidad_max))
+    .sort((a,b) => b.descuento_pct - a.descuento_pct); // mayor descuento primero
+  return rangos.length > 0 ? rangos[0].descuento_pct : 0;
+}
+
+
 
 function rProveedores(){
   const q = (document.getElementById('prov-buscar')?.value||'').toLowerCase();
@@ -947,6 +996,7 @@ function openProdModal(id){
     DB.clientes.map(c => `<option value="${c.id}">${c.razon_social}</option>`).join('');
 
   currentProdProveedores = [];
+  currentProdDvol = [];
 
   poblarCategorias();
   poblarUnidades();
@@ -985,6 +1035,10 @@ function openProdModal(id){
       currentProdProveedores = DB.producto_proveedores
         .filter(pp => pp.producto_id === id)
         .map(pp => pp.proveedor_id);
+      currentProdDvol = DB.descuentos_volumen
+        .filter(d => d.producto_id == id)
+        .map(d => ({ id: d.id, cantidad_min: d.cantidad_min, cantidad_max: d.cantidad_max, descuento_pct: d.descuento_pct }))
+        .sort((a,b) => a.cantidad_min - b.cantidad_min);
     }
   } else {
     document.getElementById('m-prod-title').textContent = 'Nuevo Producto';
@@ -993,6 +1047,8 @@ function openProdModal(id){
   }
   renderProdSpecs();
   renderProdPrices();
+  renderProdProveedores();
+  renderDvol();
   oM('m-prod');
 }
 
@@ -1111,6 +1167,19 @@ async function guardarProducto(){
       if(currentProdProveedores.length > 0){
         await SB.from('producto_proveedores').insert(
           currentProdProveedores.map(provId => ({ producto_id: targetId, proveedor_id: provId }))
+        );
+      }
+
+      // Guardar descuentos por volumen
+      await SB.from('descuentos_volumen').delete().eq('producto_id', targetId);
+      if(currentProdDvol.length > 0){
+        await SB.from('descuentos_volumen').insert(
+          currentProdDvol.map(d => ({
+            producto_id: targetId,
+            cantidad_min: d.cantidad_min,
+            cantidad_max: d.cantidad_max || null,
+            descuento_pct: d.descuento_pct
+          }))
         );
       }
     }
@@ -1419,27 +1488,57 @@ function actualizarPrecioLinea(index, selectElement) {
   const cliId = document.getElementById('m-cot-cliente').value;
   cotLineas[index].producto_id = prodId;
   cotLineas[index].descripcion = selectElement.options[selectElement.selectedIndex].text;
-  
-  if(cliId && prodId) {
+
+  if(cliId && prodId){
     cotLineas[index].precio_unitario = obtenerPrecioParaCliente(prodId, cliId);
   }
-  
-  rCotItems(); 
+
+  // Aplicar descuento por volumen automático según cantidad actual
+  const descAuto = obtenerDescuentoVolumen(prodId, cotLineas[index].cantidad || 1);
+  cotLineas[index].descuento_pct = descAuto;
+
+  rCotItems();
 }
 
 function rCotItems(){
-  document.getElementById('m-cot-items').innerHTML=cotLineas.map((l,i)=>`
-    <div style="display:flex;gap:5px;margin-bottom:5px;align-items:center;">
-      <select onchange="actualizarPrecioLinea(${i}, this)" style="flex:1;">
-        <option value="">Variante / SKU</option>
-        ${DB.productos.map(p=>`<option value="${p.id}" ${p.id==l.producto_id?'selected':''}>[${p.sku || 'SIN SKU'}] ${p.nombre}</option>`).join('')}
+  const esSA = PERFIL?.rol === 'super_admin';
+  const cliId = document.getElementById('m-cot-cliente').value;
+
+  document.getElementById('m-cot-items').innerHTML = cotLineas.map((l,i) => {
+    const prod = DB.productos.find(p => p.id == l.producto_id);
+    const stockBajo = prod && l.cantidad > prod.stock_actual;
+    const unidad = prod?.unidad_medida || '';
+
+    // Descuento: editable solo admin, readonly para usuario
+    const descInput = esSA
+      ? `<input type="number" value="${l.descuento_pct||0}" onchange="cotLineas[${i}].descuento_pct=parseFloat(this.value)||0;cotCalcTotal()" min="0" max="100" step="0.01" style="width:65px;" title="Descuento %">`
+      : `<span style="background:#f0f0f0;padding:4px 8px;border-radius:4px;font-size:13px;">${l.descuento_pct||0}%</span>`;
+
+    return `<div style="display:flex;gap:5px;margin-bottom:8px;align-items:center;flex-wrap:wrap;${stockBajo?'background:#fff5f5;padding:5px;border-radius:5px;border-left:3px solid #e74c3c;':''}">
+      <select onchange="actualizarPrecioLinea(${i}, this)" style="flex:2;min-width:180px;">
+        <option value="">— Producto —</option>
+        ${DB.productos.map(p=>`<option value="${p.id}" ${p.id==l.producto_id?'selected':''}>[${p.sku||'?'}] ${p.nombre}</option>`).join('')}
       </select>
-      <input type="number" value="${l.cantidad}" onchange="cotLineas[${i}].cantidad=parseFloat(this.value)||1;cotCalcTotal()" min="1" style="width:70px;">
-      <input type="number" value="${l.precio_unitario}" onchange="cotLineas[${i}].precio_unitario=parseFloat(this.value)||0;cotCalcTotal()" step="0.01" style="width:100px;">
+      <input type="number" value="${l.cantidad}" onchange="cotLineas[${i}].cantidad=parseFloat(this.value)||1;aplicarDescuentoVolumen(${i});cotCalcTotal()" min="1" style="width:70px;" title="Cantidad">
+      <span style="font-size:12px;color:#888;">${unidad}</span>
+      <input type="number" value="${l.precio_unitario}" onchange="cotLineas[${i}].precio_unitario=parseFloat(this.value)||0;cotCalcTotal()" step="0.01" style="width:100px;" title="Precio unitario">
+      ${descInput}
+      <span style="font-size:12px;color:#667eea;min-width:70px;">${fmt$(l.cantidad*l.precio_unitario*(1-(l.descuento_pct||0)/100))}</span>
       <button class="btn-danger" onclick="cotLineas.splice(${i},1);rCotItems();cotCalcTotal()">×</button>
-    </div>
-  `).join('');
+      ${stockBajo ? `<span style="color:#e74c3c;font-size:12px;width:100%;">⚠️ Stock insuficiente: disponible ${prod.stock_actual} ${unidad}</span>` : ''}
+    </div>`;
+  }).join('');
   cotCalcTotal();
+}
+
+function aplicarDescuentoVolumen(idx){
+  const l = cotLineas[idx];
+  if(!l.producto_id) return;
+  const descAuto = obtenerDescuentoVolumen(l.producto_id, l.cantidad);
+  if(descAuto > 0){
+    cotLineas[idx].descuento_pct = descAuto;
+    rCotItems(); // re-render para mostrar descuento actualizado
+  }
 }
 
 function cotCalcTotal(){
