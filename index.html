@@ -9,7 +9,7 @@
   <title>ERP - Comercializadora</title>
   
   <script>
-    console.log("Cargando ERP Versión: 1.1.4 - MVP C1: Validación stock + Descuentos por volumen");
+    console.log("Cargando ERP Versión: 1.2.0 - MVP C2: Cotización CX (PDF profesional)");
     (function(){
       if(!sessionStorage.getItem('erp_cache_bust')){
         sessionStorage.setItem('erp_cache_bust','1');
@@ -177,14 +177,32 @@
       </div>
 
       <div id="vw-configuracion" class="vw">
-        <h2>Configuración de la Empresa (Formatos y PDFs)</h2>
-        <div class="card" style="max-width:600px; margin-top:20px;">
-          <div class="form-group"><label>Nombre de la Empresa (Razón Social)</label><input type="text" id="cfg-nombre"></div>
-          <div class="form-group"><label>RFC</label><input type="text" id="cfg-rfc"></div>
+        <h2>Configuración de la Empresa</h2>
+        <div class="card" style="max-width:700px; margin-top:20px;">
+          <h3 style="margin-bottom:15px;color:#667eea;">🏢 Datos Fiscales y de Contacto</h3>
+          <div class="form-group"><label>Nombre de la Empresa (Razón Social) *</label><input type="text" id="cfg-nombre"></div>
+          <div class="form-group"><label>RFC *</label><input type="text" id="cfg-rfc"></div>
           <div class="form-group"><label>Dirección Física</label><textarea id="cfg-dir" rows="2"></textarea></div>
           <div class="form-group"><label>Teléfono de Contacto</label><input type="text" id="cfg-tel"></div>
           <div class="form-group"><label>Email Corporativo</label><input type="email" id="cfg-email"></div>
-          <div class="form-group"><label>Leyenda en Pie de Cotización (Términos, Cuentas Bancarias, Vigencias)</label><textarea id="cfg-leyenda" rows="4"></textarea></div>
+          <div class="form-group"><label>Sitio Web</label><input type="text" id="cfg-web" placeholder="www.miempresa.com"></div>
+
+          <h3 style="margin:25px 0 15px 0;color:#667eea;">📄 Configuración de Cotización</h3>
+          <div class="form-group">
+            <label>Logo de la Empresa (PNG/JPG)</label>
+            <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+              <input type="file" id="cfg-logo-input" accept="image/png,image/jpeg" onchange="cargarLogo(this)" style="display:none;">
+              <button class="btn" style="width:auto;background:#2980b9;color:white;" onclick="document.getElementById('cfg-logo-input').click()">📤 Subir Logo</button>
+              <button class="btn" id="btn-quitar-logo" style="width:auto;background:#e74c3c;color:white;display:none;" onclick="quitarLogo()">Quitar</button>
+              <img id="cfg-logo-preview" style="max-height:60px;max-width:200px;border:1px solid #ddd;border-radius:4px;padding:4px;display:none;">
+            </div>
+          </div>
+          <div class="form-group"><label>Banco</label><input type="text" id="cfg-banco" placeholder="Ej. BBVA"></div>
+          <div class="form-group"><label>Cuenta Bancaria / CLABE</label><input type="text" id="cfg-cuenta" placeholder="Ej. 0123456789 / CLABE 012345678901234567"></div>
+          <div class="form-group"><label>Condiciones de Pago (default)</label><input type="text" id="cfg-condiciones" placeholder="Ej. 30 DIAS"></div>
+          <div class="form-group"><label>Términos y Condiciones (aparece al pie de la cotización)</label><textarea id="cfg-terminos" rows="5" placeholder="• Los precios están expresados en MONEDA NACIONAL...&#10;• Esta cotización tiene una vigencia de..."></textarea></div>
+          <div class="form-group"><label>Leyenda adicional (opcional)</label><textarea id="cfg-leyenda" rows="2"></textarea></div>
+
           <button class="btn btn-primary" onclick="guardarConfiguracion()">Guardar Configuración</button>
         </div>
       </div>
@@ -287,7 +305,10 @@
   <div class="modal-header"><h3>Cliente</h3><button class="modal-close" onclick="cM('m-cli')">×</button></div>
   <div class="form-group"><label>Razón Social *</label><input type="text" id="m-cli-rs"></div>
   <div class="form-group"><label>RFC *</label><input type="text" id="m-cli-rfc"></div>
+  <div class="form-group"><label>Contacto (nombre)</label><input type="text" id="m-cli-contacto" placeholder="Ej. Juan Pérez"></div>
+  <div class="form-group"><label>Teléfono</label><input type="text" id="m-cli-tel" placeholder="Ej. 81 1234 5678"></div>
   <div class="form-group"><label>Email</label><input type="email" id="m-cli-email"></div>
+  <div class="form-group"><label>Dirección</label><textarea id="m-cli-direccion" rows="2" placeholder="Calle, Colonia, Ciudad, Estado"></textarea></div>
   <div class="form-group"><label>Lista de Precios Asignada</label><input type="text" id="m-cli-lista" placeholder="Ej. general, VIP, Distribuidor"></div>
   <button class="btn btn-primary" onclick="guardarCliente()">Guardar</button>
 </div></div>
@@ -558,7 +579,45 @@ function rConfiguracion() {
   document.getElementById('cfg-dir').value = CONFIG_ERP.empresa_direccion || '';
   document.getElementById('cfg-tel').value = CONFIG_ERP.empresa_telefono || '';
   document.getElementById('cfg-email').value = CONFIG_ERP.empresa_email || '';
+  document.getElementById('cfg-web').value = CONFIG_ERP.empresa_web || '';
+  document.getElementById('cfg-banco').value = CONFIG_ERP.banco || '';
+  document.getElementById('cfg-cuenta').value = CONFIG_ERP.cuenta_bancaria || '';
+  document.getElementById('cfg-condiciones').value = CONFIG_ERP.condiciones_pago_default || '';
+  document.getElementById('cfg-terminos').value = CONFIG_ERP.terminos_cotizacion || '';
   document.getElementById('cfg-leyenda').value = CONFIG_ERP.cotizacion_leyenda || '';
+
+  // Preview del logo
+  const preview = document.getElementById('cfg-logo-preview');
+  const btnQuitar = document.getElementById('btn-quitar-logo');
+  if(CONFIG_ERP.logo_base64){
+    preview.src = CONFIG_ERP.logo_base64;
+    preview.style.display = '';
+    btnQuitar.style.display = '';
+  } else {
+    preview.style.display = 'none';
+    btnQuitar.style.display = 'none';
+  }
+}
+
+function cargarLogo(input){
+  const file = input.files[0];
+  if(!file) return;
+  if(file.size > 500 * 1024){ alert('El logo debe pesar menos de 500KB. Comprime la imagen.'); input.value=''; return; }
+  const reader = new FileReader();
+  reader.onload = e => {
+    CONFIG_ERP.logo_base64 = e.target.result;
+    document.getElementById('cfg-logo-preview').src = e.target.result;
+    document.getElementById('cfg-logo-preview').style.display = '';
+    document.getElementById('btn-quitar-logo').style.display = '';
+  };
+  reader.readAsDataURL(file);
+}
+
+function quitarLogo(){
+  CONFIG_ERP.logo_base64 = null;
+  document.getElementById('cfg-logo-input').value = '';
+  document.getElementById('cfg-logo-preview').style.display = 'none';
+  document.getElementById('btn-quitar-logo').style.display = 'none';
 }
 
 async function guardarConfiguracion() {
@@ -570,15 +629,21 @@ async function guardarConfiguracion() {
       empresa_direccion: document.getElementById('cfg-dir').value.trim(),
       empresa_telefono: document.getElementById('cfg-tel').value.trim(),
       empresa_email: document.getElementById('cfg-email').value.trim(),
-      cotizacion_leyenda: document.getElementById('cfg-leyenda').value.trim()
+      empresa_web: document.getElementById('cfg-web').value.trim(),
+      banco: document.getElementById('cfg-banco').value.trim(),
+      cuenta_bancaria: document.getElementById('cfg-cuenta').value.trim(),
+      condiciones_pago_default: document.getElementById('cfg-condiciones').value.trim(),
+      terminos_cotizacion: document.getElementById('cfg-terminos').value.trim(),
+      cotizacion_leyenda: document.getElementById('cfg-leyenda').value.trim(),
+      logo_base64: CONFIG_ERP.logo_base64 || null
     };
-    
+
     const {error} = await SB.from('configuracion_erp').upsert(payload);
     if(error) throw error;
     CONFIG_ERP = payload;
-    alert("Configuración de empresa guardada con éxito.");
+    alert("✅ Configuración guardada.");
   } catch(e) {
-    alert("Error al guardar configuración. Asegúrate de haber creado la tabla en Supabase. Detalles: " + e.message);
+    alert("Error al guardar: " + e.message);
   }
 }
 
@@ -1348,14 +1413,17 @@ function rClientes(){
 
 function openCliModal(id){
   currentCliId = id || null;
-  ['m-cli-rs','m-cli-rfc','m-cli-email','m-cli-lista'].forEach(k=>document.getElementById(k).value='');
-  
+  ['m-cli-rs','m-cli-rfc','m-cli-contacto','m-cli-tel','m-cli-email','m-cli-direccion','m-cli-lista'].forEach(k=>document.getElementById(k).value='');
+
   if(id){
     const c=DB.clientes.find(x=>x.id===id);
     if(c){
       document.getElementById('m-cli-rs').value=c.razon_social;
       document.getElementById('m-cli-rfc').value=c.rfc||'';
+      document.getElementById('m-cli-contacto').value=c.contacto_nombre||'';
+      document.getElementById('m-cli-tel').value=c.telefono||'';
       document.getElementById('m-cli-email').value=c.email||'';
+      document.getElementById('m-cli-direccion').value=c.direccion||'';
       document.getElementById('m-cli-lista').value=c.lista_precios||'general';
     }
   } else {
@@ -1368,12 +1436,15 @@ async function guardarCliente(){
   try {
     const rs=document.getElementById('m-cli-rs').value.trim();
     const rfc=document.getElementById('m-cli-rfc').value.trim();
+    const contacto=document.getElementById('m-cli-contacto').value.trim();
+    const tel=document.getElementById('m-cli-tel').value.trim();
     const email=document.getElementById('m-cli-email').value.trim();
+    const direccion=document.getElementById('m-cli-direccion').value.trim();
     const lista=document.getElementById('m-cli-lista').value.trim()||'general';
     if(!rs||!rfc)return alert('Razón Social y RFC obligatorios');
-    
-    const payload = {razon_social:rs, rfc, email, lista_precios:lista};
-    
+
+    const payload = {razon_social:rs, rfc, contacto_nombre:contacto, telefono:tel, email, direccion, lista_precios:lista};
+
     if (currentCliId) {
       const {error} = await SB.from('clientes').update(payload).eq('id', currentCliId);
       if(error) throw error;
@@ -1381,7 +1452,7 @@ async function guardarCliente(){
       const {error} = await SB.from('clientes').insert(payload);
       if(error) throw error;
     }
-    
+
     cM('m-cli'); await loadAll(); rClientes();
   } catch(e) { alert("Error al guardar cliente: " + e.message); }
 }
@@ -1653,72 +1724,220 @@ async function cambiarEstadoCot(id, estado){
   } catch(e) { alert("Error al cambiar estado: " + e.message); }
 }
 
-// IMPRESIÓN DINÁMICA DE PDF
+// PDF PROFESIONAL DE COTIZACIÓN (MVP C2 - Cotización CX)
 async function verCot(id){
   try {
-    const c=DB.cotizaciones.find(x=>x.id===id);if(!c)return;
-    const items=DB.cotizacion_items.filter(x=>x.cotizacion_id===id);
-    const cli=DB.clientes.find(x=>x.id===c.cliente_id);
-    const doc=new jspdf.jsPDF();
-    
-    // Extracción de Identidad Corporativa o datos por defecto
+    const c = DB.cotizaciones.find(x=>x.id===id); if(!c) return;
+    const items = DB.cotizacion_items.filter(x=>x.cotizacion_id===id);
+    const cli = DB.clientes.find(x=>x.id===c.cliente_id);
+    const doc = new jspdf.jsPDF({unit:'mm', format:'letter'}); // Carta
+
+    // Datos empresa
     const empNombre = CONFIG_ERP.empresa_nombre || 'MI EMPRESA S.A. DE C.V.';
-    const empRfc = CONFIG_ERP.empresa_rfc || 'RFC: MIE010101XXX';
-    const empDir = CONFIG_ERP.empresa_direccion || '';
-    const empTel = CONFIG_ERP.empresa_telefono || '';
-    const empEmail = CONFIG_ERP.empresa_email || '';
-    const empLeyenda = CONFIG_ERP.cotizacion_leyenda || 'Precios y condiciones sujetos a cambios sin previo aviso.';
+    const empRfc    = CONFIG_ERP.empresa_rfc || '';
+    const empDir    = CONFIG_ERP.empresa_direccion || '';
+    const empTel    = CONFIG_ERP.empresa_telefono || '';
+    const empEmail  = CONFIG_ERP.empresa_email || '';
+    const empWeb    = CONFIG_ERP.empresa_web || '';
+    const banco     = CONFIG_ERP.banco || '';
+    const cuenta    = CONFIG_ERP.cuenta_bancaria || '';
+    const condDef   = CONFIG_ERP.condiciones_pago_default || '30 DIAS';
+    const terminos  = CONFIG_ERP.terminos_cotizacion || '';
+    const leyenda   = CONFIG_ERP.cotizacion_leyenda || '';
+    const logo      = CONFIG_ERP.logo_base64;
 
-    // Encabezado Izquierdo (Empresa)
-    doc.setFontSize(16);
-    doc.text(empNombre, 20, 20);
-    doc.setFontSize(10);
-    doc.text(empRfc, 20, 26);
-    if(empDir) doc.text(empDir, 20, 32);
-    if(empTel || empEmail) doc.text(`Tel: ${empTel} | Correo: ${empEmail}`, 20, 38);
+    // Constantes de layout
+    const PAGE_W = 216, PAGE_H = 279, M = 12;
+    const COLOR_HEAD = [102, 126, 234]; // #667eea
+    const COLOR_GRIS = [80, 80, 80];
+    const COLOR_LINE = [200, 200, 200];
 
-    // Encabezado Derecho (Datos Cotización)
-    doc.setFontSize(12);
-    doc.text(`COTIZACIÓN: ${c.numero}`, 190, 20, { align: 'right' });
-    doc.setFontSize(10);
-    doc.text(`Fecha: ${c.fecha}`, 190, 26, { align: 'right' });
-    doc.text(`Vigencia: ${c.vigencia}`, 190, 32, { align: 'right' });
+    // ── HEADER ────────────────────────────────────────────
+    let y = M;
 
-    // Línea separadora
-    doc.setDrawColor(200);
-    doc.line(20, 42, 190, 42);
+    // Logo (opcional, arriba izquierda)
+    if(logo){
+      try { doc.addImage(logo, 'PNG', M, y, 35, 20); } catch(e){ console.warn('Logo error:', e); }
+    }
 
-    // Datos del Cliente
-    doc.setFontSize(11);
-    doc.text(`Cliente: ${cli ? cli.razon_social : '-'}`, 20, 50);
+    // Empresa a la izquierda
+    doc.setFont('helvetica','bold'); doc.setFontSize(13); doc.setTextColor(...COLOR_GRIS);
+    doc.text(empNombre, logo ? M+38 : M, y+6);
+    doc.setFont('helvetica','normal'); doc.setFontSize(8);
+    if(empRfc) doc.text(`RFC: ${empRfc}`, logo ? M+38 : M, y+11);
 
-    // Tabla de Productos
-    const rows=items.map(i=>[i.descripcion||'',i.cantidad,fmt$(i.precio_unitario),i.descuento_pct+'%',fmt$(i.importe||0)]);
-    doc.autoTable({
-      head:[['Producto / Variante','Cant','P.Unit','Desc%','Importe']],
-      body:rows,
-      startY: 55,
-      theme: 'grid',
-      headStyles: { fillColor: [102, 126, 234] }
+    // Contacto empresa a la derecha
+    doc.setFontSize(8); doc.setTextColor(...COLOR_GRIS);
+    let yR = y+4;
+    if(empDir){
+      const dirLines = doc.splitTextToSize(empDir, 80);
+      doc.text(dirLines, PAGE_W-M, yR, {align:'right'}); yR += dirLines.length*3.5;
+    }
+    if(empEmail){ doc.text(empEmail, PAGE_W-M, yR, {align:'right'}); yR += 4; }
+    if(empTel){ doc.text(empTel, PAGE_W-M, yR, {align:'right'}); yR += 4; }
+    if(empWeb){ doc.text(empWeb, PAGE_W-M, yR, {align:'right'}); yR += 4; }
+
+    y = Math.max(y+25, yR+4);
+
+    // Banda "COTIZACIÓN"
+    doc.setFillColor(...COLOR_HEAD);
+    doc.rect(M, y, PAGE_W-M*2, 8, 'F');
+    doc.setTextColor(255); doc.setFont('helvetica','bold'); doc.setFontSize(11);
+    doc.text('COTIZACIÓN', PAGE_W/2, y+5.5, {align:'center'});
+    y += 12;
+
+    // ── DATOS CLIENTE (izquierda) y COTIZACIÓN (derecha) ─
+    doc.setTextColor(...COLOR_GRIS);
+    const col1X = M, col2X = PAGE_W/2 + 4;
+    const boxH = 34;
+    doc.setDrawColor(...COLOR_LINE);
+    doc.rect(col1X, y, (PAGE_W/2)-M-2, boxH);
+    doc.rect(col2X, y, (PAGE_W/2)-M-2, boxH);
+
+    // Header de cada bloque
+    doc.setFillColor(240,240,240);
+    doc.rect(col1X, y, (PAGE_W/2)-M-2, 5, 'F');
+    doc.rect(col2X, y, (PAGE_W/2)-M-2, 5, 'F');
+    doc.setFont('helvetica','bold'); doc.setFontSize(8);
+    doc.text('DATOS DEL CLIENTE', col1X+2, y+3.5);
+    doc.text('DATOS DE COTIZACIÓN', col2X+2, y+3.5);
+
+    // Contenido cliente
+    doc.setFont('helvetica','normal'); doc.setFontSize(8);
+    const cliDatos = [
+      ['Empresa:', cli?.razon_social || ''],
+      ['Contacto:', cli?.contacto_nombre || ''],
+      ['Teléfono:', cli?.telefono || ''],
+      ['Correo:', cli?.email || ''],
+      ['Dirección:', cli?.direccion || '']
+    ];
+    let yc = y+9;
+    cliDatos.forEach(([k,v]) => {
+      doc.setFont('helvetica','bold'); doc.text(k, col1X+2, yc);
+      doc.setFont('helvetica','normal');
+      const vLines = doc.splitTextToSize(v, (PAGE_W/2)-M-24);
+      doc.text(vLines, col1X+20, yc);
+      yc += 5;
     });
 
-    // Totales
-    let finalY = doc.lastAutoTable.finalY + 10;
-    doc.setFontSize(10);
-    doc.text(`Subtotal: ${fmt$(c.subtotal)}`, 190, finalY, {align: 'right'});
-    doc.text(`IVA (${c.iva_porcentaje}%): ${fmt$(c.iva)}`, 190, finalY + 6, {align: 'right'});
-    doc.setFontSize(12);
-    doc.text(`Total: ${fmt$(c.total)}`, 190, finalY + 14, {align: 'right'});
+    // Contenido cotización
+    const cotDatos = [
+      ['No. Cotización:', c.numero || ''],
+      ['Fecha:', c.fecha || ''],
+      ['Válido hasta:', c.vigencia || ''],
+      ['Vendedor:', c.vendedor_nombre || (PERFIL?.usuario || '')],
+      ['Condiciones:', c.condiciones_pago || condDef]
+    ];
+    let yq = y+9;
+    cotDatos.forEach(([k,v]) => {
+      doc.setFont('helvetica','bold'); doc.text(k, col2X+2, yq);
+      doc.setFont('helvetica','normal'); doc.text(String(v), col2X+30, yq);
+      yq += 5;
+    });
 
-    // Leyenda de Pie de Página
-    doc.setFontSize(8);
-    doc.setTextColor(100);
-    // Dividir la leyenda en múltiples líneas si es muy larga
-    const splitLeyenda = doc.splitTextToSize(empLeyenda, 170);
-    doc.text(splitLeyenda, 20, 275);
+    y += boxH + 5;
+
+    // ── TABLA DE ITEMS ────────────────────────────────────
+    const rows = items.map((i, idx) => {
+      const prod = DB.productos.find(p => p.id == i.producto_id);
+      return [
+        idx+1,
+        prod?.sku || '',
+        i.descripcion || prod?.nombre || '',
+        i.cantidad,
+        prod?.unidad_medida || '',
+        fmt$(i.precio_unitario),
+        (i.descuento_pct||0)+'%',
+        fmt$(i.importe||0)
+      ];
+    });
+
+    doc.autoTable({
+      head: [['#','CLAVE','DESCRIPCIÓN DEL PRODUCTO/SERVICIO','CANT.','UNIDAD','PRECIO UNIT.','DESC. %','TOTAL']],
+      body: rows,
+      startY: y,
+      theme: 'grid',
+      styles: { fontSize: 7.5, cellPadding: 1.8, textColor: [50,50,50] },
+      headStyles: { fillColor: COLOR_HEAD, textColor: 255, fontStyle:'bold', fontSize: 7.5 },
+      columnStyles: {
+        0: { cellWidth: 8, halign:'center' },
+        1: { cellWidth: 22, halign:'center' },
+        2: { cellWidth: 'auto' },
+        3: { cellWidth: 14, halign:'center' },
+        4: { cellWidth: 16, halign:'center' },
+        5: { cellWidth: 22, halign:'right' },
+        6: { cellWidth: 14, halign:'center' },
+        7: { cellWidth: 24, halign:'right' }
+      },
+      margin: { left: M, right: M }
+    });
+
+    let finalY = doc.lastAutoTable.finalY + 4;
+
+    // ── TOTALES ───────────────────────────────────────────
+    const subtotal = Number(c.subtotal||0);
+    const descGlobalPct = Number(c.descuento_global_pct||0);
+    const descGlobalMonto = subtotal * descGlobalPct/100;
+    const subtotalConDesc = subtotal - descGlobalMonto;
+    const iva = Number(c.iva||0);
+    const total = Number(c.total||0);
+
+    const totBoxX = PAGE_W - M - 70;
+    const totBoxW = 70;
+    const lineH = 5.5;
+
+    const printTotLine = (label, val, bold=false, bg=null) => {
+      if(bg){ doc.setFillColor(...bg); doc.rect(totBoxX, finalY-3.5, totBoxW, lineH, 'F'); doc.setTextColor(255); }
+      else { doc.setTextColor(...COLOR_GRIS); }
+      doc.setFont('helvetica', bold ? 'bold':'normal'); doc.setFontSize(9);
+      doc.text(label, totBoxX+2, finalY);
+      doc.text(val, totBoxX+totBoxW-2, finalY, {align:'right'});
+      finalY += lineH;
+    };
+
+    printTotLine('Subtotal:', fmt$(subtotal));
+    if(descGlobalPct > 0){
+      printTotLine(`Descuento global (${descGlobalPct}%):`, `-${fmt$(descGlobalMonto)}`);
+      printTotLine('Subtotal con descuento:', fmt$(subtotalConDesc));
+    }
+    printTotLine(`IVA (${c.iva_porcentaje||16}%):`, fmt$(iva));
+    printTotLine('TOTAL A PAGAR:', fmt$(total), true, COLOR_HEAD);
+
+    finalY += 4;
+
+    // ── DATOS BANCARIOS ───────────────────────────────────
+    if(banco || cuenta){
+      doc.setTextColor(...COLOR_GRIS); doc.setFontSize(8); doc.setFont('helvetica','bold');
+      doc.text('DATOS PARA DEPÓSITO / TRANSFERENCIA:', M, finalY); finalY += 4;
+      doc.setFont('helvetica','normal');
+      if(banco){ doc.text(`Banco: ${banco}`, M, finalY); finalY += 4; }
+      if(cuenta){ doc.text(`Cuenta: ${cuenta}`, M, finalY); finalY += 4; }
+      finalY += 2;
+    }
+
+    // ── TÉRMINOS Y CONDICIONES ────────────────────────────
+    if(terminos){
+      doc.setFont('helvetica','bold'); doc.setFontSize(8);
+      doc.text('TÉRMINOS Y CONDICIONES', M, finalY); finalY += 4;
+      doc.setFont('helvetica','normal'); doc.setFontSize(7.5); doc.setTextColor(80);
+      const termLines = doc.splitTextToSize(terminos, PAGE_W - M*2);
+      doc.text(termLines, M, finalY); finalY += termLines.length*3.2 + 2;
+    }
+
+    // Leyenda adicional (si existe)
+    if(leyenda){
+      doc.setFontSize(7); doc.setTextColor(100);
+      const leyLines = doc.splitTextToSize(leyenda, PAGE_W - M*2);
+      doc.text(leyLines, M, finalY);
+    }
+
+    // Footer institucional
+    doc.setFontSize(7); doc.setTextColor(150);
+    doc.text('Agradecemos su preferencia. Para cualquier duda estamos a sus órdenes.', PAGE_W/2, PAGE_H-6, {align:'center'});
 
     doc.save(`Cotizacion_${c.numero}.pdf`);
   } catch(e) {
+    console.error(e);
     alert("Error al generar PDF: " + e.message);
   }
 }
