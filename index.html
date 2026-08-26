@@ -9,7 +9,7 @@
   <title>ERP - Comercializadora</title>
   
   <script>
-    console.log("Cargando ERP Versión: 1.1.2 - MVP A3: Unidades de Medida");
+    console.log("Cargando ERP Versión: 1.1.3 - MVP B: Módulo Proveedores");
     (function(){
       if(!sessionStorage.getItem('erp_cache_bust')){
         sessionStorage.setItem('erp_cache_bust','1');
@@ -107,6 +107,7 @@
       <button class="ntb" onclick="sv('cotizaciones')">📄 Cotizaciones</button>
       <button class="ntb" onclick="sv('inventario')">📊 Inventario</button>
       <button class="ntb" id="nb-config" style="display:none!important;" onclick="sv('configuracion')">⚙️ Configuración</button>
+      <button class="ntb" id="nb-proveedores" style="display:none!important;" onclick="sv('proveedores')">🏭 Proveedores</button>
       <button class="ntb" id="nb-usuarios" style="display:none!important;" onclick="sv('usuarios')">👤 Usuarios</button>
     </div>
     <div class="content">
@@ -166,6 +167,15 @@
         <table><thead><tr><th>Fecha</th><th>SKU</th><th>Producto</th><th>Tipo</th><th>Cantidad</th></tr></thead><tbody id="inv-tbody"></tbody></table>
       </div>
       
+      <div id="vw-proveedores" class="vw">
+        <h2>Proveedores</h2>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:5px;">
+          <button class="btn btn-primary" style="width:auto;" onclick="openProvModal()">+ Nuevo Proveedor</button>
+          <input type="text" id="prov-buscar" placeholder="🔍 Buscar por nombre o contacto..." oninput="rProveedores()" style="padding:8px;border:1px solid #ddd;border-radius:5px;font-size:14px;flex:1;min-width:200px;">
+        </div>
+        <table><thead><tr><th>Nombre</th><th>Contacto</th><th>Teléfono</th><th>Email</th><th>Productos</th><th>Acciones</th></tr></thead><tbody id="prov-tbody"></tbody></table>
+      </div>
+
       <div id="vw-configuracion" class="vw">
         <h2>Configuración de la Empresa (Formatos y PDFs)</h2>
         <div class="card" style="max-width:600px; margin-top:20px;">
@@ -297,6 +307,17 @@
   <div id="rp-ok" class="alert alert-success"></div>
 </div></div>
 
+<div id="m-prov" class="modal"><div class="modal-content">
+  <div class="modal-header"><h3 id="m-prov-title">Nuevo Proveedor</h3><button class="modal-close" onclick="cM('m-prov')">×</button></div>
+  <div class="form-group"><label>Nombre *</label><input type="text" id="m-prov-nombre" placeholder="Ej. Distribuidora Industrial SA"></div>
+  <div class="form-group"><label>Contacto</label><input type="text" id="m-prov-contacto" placeholder="Nombre del representante"></div>
+  <div class="form-group"><label>Teléfono</label><input type="text" id="m-prov-tel" placeholder="Ej. 81 1234 5678"></div>
+  <div class="form-group"><label>Email</label><input type="email" id="m-prov-email" placeholder="ventas@proveedor.com"></div>
+  <button class="btn btn-primary" onclick="guardarProveedor()">Guardar</button>
+  <button id="btn-eliminar-prov" class="btn" style="background:#e74c3c;color:white;display:none;" onclick="eliminarProveedor()">Eliminar</button>
+  <div id="m-prov-err" class="alert alert-danger"></div>
+</div></div>
+
 <div id="m-nueva-um" class="modal"><div class="modal-content" style="max-width:400px;">
   <div class="modal-header"><h3>Nueva Unidad de Medida</h3><button class="modal-close" onclick="cM('m-nueva-um')">×</button></div>
   <div class="form-group"><label>Nombre (ej. Tonelada) *</label><input type="text" id="num-nombre" placeholder="Tonelada"></div>
@@ -420,6 +441,7 @@ function sv(id){
     if(id==='inventario') rInventario();
     if(id==='configuracion'&&PERFIL?.rol==='super_admin') rConfiguracion();
     if(id==='usuarios'&&PERFIL?.rol==='super_admin') rUsuarios();
+    if(id==='proveedores'&&PERFIL?.rol==='super_admin') rProveedores();
   } catch(e) { console.error(e); alert("Error al cambiar de vista."); }
 }
 
@@ -469,6 +491,7 @@ async function initApp(){
   r.className = 'badge ' + (PERFIL.rol === 'super_admin' ? 'bg' : 'bgr');
   document.getElementById('nb-usuarios').style.display = PERFIL.rol === 'super_admin' ? '' : 'none';
   document.getElementById('nb-config').style.display   = PERFIL.rol === 'super_admin' ? '' : 'none';
+  document.getElementById('nb-proveedores').style.display = PERFIL.rol === 'super_admin' ? '' : 'none';
   const esSA = PERFIL.rol === 'super_admin';
   document.getElementById('btn-import-prod').style.display   = esSA ? '' : 'none';
   document.getElementById('btn-plantilla-prod').style.display = esSA ? '' : 'none';
@@ -621,7 +644,103 @@ function rProductos(){
   }).join('')||'<tr><td colspan="5" class="empty">Sin resultados</td></tr>';
 }
 
-// ── UNIDADES DE MEDIDA ───────────────────────────────────────────────────────
+// ── MÓDULO PROVEEDORES ────────────────────────────────────────────────────────
+
+function rProveedores(){
+  const q = (document.getElementById('prov-buscar')?.value||'').toLowerCase();
+  const lista = q ? DB.proveedores.filter(p =>
+    (p.nombre||'').toLowerCase().includes(q) ||
+    (p.contacto||'').toLowerCase().includes(q)
+  ) : DB.proveedores;
+
+  document.getElementById('prov-tbody').innerHTML = lista.map(p => {
+    const numProds = DB.producto_proveedores.filter(pp => pp.proveedor_id === p.id).length;
+    return `<tr>
+      <td><strong>${p.nombre}</strong></td>
+      <td>${p.contacto||'-'}</td>
+      <td>${p.telefono||'-'}</td>
+      <td>${p.email||'-'}</td>
+      <td><span class="badge ba">${numProds} producto${numProds!==1?'s':''}</span></td>
+      <td><button class="btn-sm btn-primary" onclick="editProv('${p.id}')">Editar</button></td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="6" class="empty">Sin proveedores registrados</td></tr>';
+}
+
+let currentProvId = null;
+
+function openProvModal(){
+  currentProvId = null;
+  ['m-prov-nombre','m-prov-contacto','m-prov-tel','m-prov-email'].forEach(k => document.getElementById(k).value='');
+  document.getElementById('m-prov-title').textContent = 'Nuevo Proveedor';
+  document.getElementById('btn-eliminar-prov').style.display = 'none';
+  document.getElementById('m-prov-err').classList.remove('show');
+  oM('m-prov');
+}
+
+function editProv(id){
+  currentProvId = id;
+  const p = DB.proveedores.find(x => x.id === id);
+  if(!p) return;
+  document.getElementById('m-prov-title').textContent = 'Editar Proveedor';
+  document.getElementById('m-prov-nombre').value = p.nombre||'';
+  document.getElementById('m-prov-contacto').value = p.contacto||'';
+  document.getElementById('m-prov-tel').value = p.telefono||'';
+  document.getElementById('m-prov-email').value = p.email||'';
+  document.getElementById('btn-eliminar-prov').style.display = '';
+  document.getElementById('m-prov-err').classList.remove('show');
+  oM('m-prov');
+}
+
+async function guardarProveedor(){
+  try {
+    const nombre = document.getElementById('m-prov-nombre').value.trim();
+    const contacto = document.getElementById('m-prov-contacto').value.trim();
+    const telefono = document.getElementById('m-prov-tel').value.trim();
+    const email = document.getElementById('m-prov-email').value.trim();
+    const errEl = document.getElementById('m-prov-err');
+    errEl.classList.remove('show');
+
+    if(!nombre){ errEl.textContent='El nombre es obligatorio'; errEl.classList.add('show'); return; }
+
+    const payload = { nombre, contacto, telefono, email };
+
+    if(currentProvId){
+      const {error} = await SB.from('proveedores').update(payload).eq('id', currentProvId);
+      if(error) throw error;
+    } else {
+      const {error} = await SB.from('proveedores').insert(payload);
+      if(error) throw error;
+    }
+    cM('m-prov');
+    await loadAll();
+    rProveedores();
+    // Refrescar dropdown de proveedores en modal de producto si está abierto
+    const selProv = document.getElementById('m-prod-prov-sel');
+    if(selProv) selProv.innerHTML = '<option value="">— Selecciona proveedor —</option>' +
+      DB.proveedores.map(p => `<option value="${p.id}">${p.nombre}</option>`).join('');
+  } catch(e){
+    document.getElementById('m-prov-err').textContent = 'Error: '+e.message;
+    document.getElementById('m-prov-err').classList.add('show');
+  }
+}
+
+async function eliminarProveedor(){
+  if(!currentProvId) return;
+  const numProds = DB.producto_proveedores.filter(pp => pp.proveedor_id === currentProvId).length;
+  const msg = numProds > 0
+    ? `Este proveedor tiene ${numProds} producto(s) asignado(s). ¿Eliminar de todas formas?`
+    : '¿Eliminar este proveedor?';
+  if(!confirm(msg)) return;
+  try {
+    const {error} = await SB.from('proveedores').delete().eq('id', currentProvId);
+    if(error) throw error;
+    cM('m-prov');
+    await loadAll();
+    rProveedores();
+  } catch(e){ alert('Error al eliminar: '+e.message); }
+}
+
+
 
 function poblarUnidades(){
   const sel = document.getElementById('m-prod-unidad');
