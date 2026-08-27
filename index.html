@@ -10,7 +10,7 @@
   <title>ERP - Comercializadora</title>
   
   <script>
-    console.log("Cargando ERP Versión: 1.2.6 - MFA: Autenticación en 2 pasos");
+    console.log("Cargando ERP Versión: 1.2.8 - Fix: MFA factor existente no verificado");
     (function(){
       if(!sessionStorage.getItem('erp_cache_bust')){
         sessionStorage.setItem('erp_cache_bust','1');
@@ -360,8 +360,6 @@
   <button class="btn btn-primary" onclick="guardarMovimiento()">Guardar</button>
 </div></div>
 
-<div id="m-reset-pass" class="modal"><div class="modal-content" style="max-width:400px;">
-
 <!-- MFA VERIFY MODAL -->
 <div id="m-mfa-verify" class="modal"><div class="modal-content" style="max-width:380px;">
   <div class="modal-header"><h3>🔐 Verificación en 2 pasos</h3></div>
@@ -403,6 +401,8 @@
     <button class="btn btn-primary" style="margin-top:15px;" onclick="cM('m-mfa-setup');initApp()">Continuar</button>
   </div>
 </div></div>
+
+<div id="m-reset-pass" class="modal"><div class="modal-content" style="max-width:400px;">
   <div class="modal-header"><h3>🔑 Nueva Contraseña</h3></div>
   <p style="margin-bottom:15px;color:#555;font-size:14px;">Ingresa tu nueva contraseña para acceder al ERP.</p>
   <div class="form-group"><label>Nueva contraseña (mín. 8 caracteres)</label><input type="password" id="rp-pass1" placeholder="••••••••"></div>
@@ -665,9 +665,16 @@ async function iniciarMFAEnroll(forzado=false){
     document.getElementById('mfa-setup-ok').style.display='none';
     document.getElementById('mfa-setup-err').classList.remove('show');
     document.getElementById('mfa-setup-code').value='';
-
-    // Botón cerrar: solo visible si no es forzado
     document.getElementById('btn-close-mfa-setup').style.display = forzado ? 'none' : '';
+
+    // Verificar si ya existe un factor no verificado (intento previo incompleto)
+    const {data: factors} = await SB.auth.mfa.listFactors();
+    const factorExistente = factors?.all?.find(f => f.factor_type === 'totp' && f.status === 'unverified');
+
+    if(factorExistente){
+      // Desregistrar el factor incompleto y crear uno nuevo
+      await SB.auth.mfa.unenroll({factorId: factorExistente.id});
+    }
 
     const {data,error} = await SB.auth.mfa.enroll({
       factorType: 'totp',
