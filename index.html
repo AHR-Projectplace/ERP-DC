@@ -10,7 +10,7 @@
   <title>ERP - Comercializadora</title>
   
   <script>
-    console.log("Cargando ERP Versión: 1.3.3 - Fix PDF: layout logo + desc limpia + eliminar cot");
+    console.log("Cargando ERP Versión: 1.3.4 - PDF v3: Layout robusto anti-empalme");
     (function(){
       if(!sessionStorage.getItem('erp_cache_bust')){
         sessionStorage.setItem('erp_cache_bust','1');
@@ -2504,15 +2504,14 @@ async function cambiarEstadoCot(id, estado){
   } catch(e) { alert("Error al cambiar estado: " + e.message); }
 }
 
-// PDF PROFESIONAL DE COTIZACIÓN (MVP C2 - Cotización CX)
+// PDF PROFESIONAL DE COTIZACIÓN v3 — layout robusto
 async function verCot(id){
   try {
     const c = DB.cotizaciones.find(x=>x.id===id); if(!c) return;
     const items = DB.cotizacion_items.filter(x=>x.cotizacion_id===id);
     const cli = DB.clientes.find(x=>x.id===c.cliente_id);
-    const doc = new jspdf.jsPDF({unit:'mm', format:'letter'}); // Carta
+    const doc = new jspdf.jsPDF({unit:'mm', format:'letter'});
 
-    // Datos empresa
     const empNombre = CONFIG_ERP.empresa_nombre || 'MI EMPRESA S.A. DE C.V.';
     const empRfc    = CONFIG_ERP.empresa_rfc || '';
     const empDir    = CONFIG_ERP.empresa_direccion || '';
@@ -2526,108 +2525,125 @@ async function verCot(id){
     const leyenda   = CONFIG_ERP.cotizacion_leyenda || '';
     const logo      = CONFIG_ERP.logo_base64;
 
-    // Constantes de layout
-    const PAGE_W = 216, PAGE_H = 279, M = 12;
-    const COLOR_HEAD = [10, 15, 44]; // #0a0f2c
+    const PAGE_W = 216, PAGE_H = 279, M = 12, FOOTER_H = 10;
+    const COLOR_HEAD = [10, 15, 44];
     const COLOR_GRIS = [80, 80, 80];
     const COLOR_LINE = [200, 200, 200];
+    const SAFE_BOTTOM = PAGE_H - FOOTER_H - M;
 
-    // ── HEADER ────────────────────────────────────────────
-    let y = M;
+    // Helper: nueva página si no hay espacio
+    const checkPage = (needed=10) => {
+      if(finalY + needed > SAFE_BOTTOM){
+        doc.addPage();
+        finalY = M;
+        return true;
+      }
+      return false;
+    };
 
-    // Logo (arriba izquierda)
+    // ── HEADER ────────────────────────────────────────────────────────────────
+    let finalY = M;
+
+    // Logo
+    const LOGO_H = 20, LOGO_W = 58;
     if(logo){
-      try { doc.addImage(logo, 'PNG', M, y, 55, 18); } catch(e){ console.warn('Logo error:', e); }
-      // Empresa y RFC debajo del logo
-      doc.setFont('helvetica','bold'); doc.setFontSize(12); doc.setTextColor(...COLOR_GRIS);
-      doc.text(empNombre, M, y+24);
-      doc.setFont('helvetica','normal'); doc.setFontSize(8);
-      if(empRfc) doc.text(`RFC: ${empRfc}`, M, y+29);
-    } else {
-      doc.setFont('helvetica','bold'); doc.setFontSize(13); doc.setTextColor(...COLOR_GRIS);
-      doc.text(empNombre, M, y+6);
-      doc.setFont('helvetica','normal'); doc.setFontSize(8);
-      if(empRfc) doc.text(`RFC: ${empRfc}`, M, y+11);
+      try { doc.addImage(logo, 'PNG', M, finalY, LOGO_W, LOGO_H); } catch(e){}
     }
 
-    // Contacto empresa a la derecha
+    // Contacto empresa derecha
     doc.setFontSize(8); doc.setTextColor(...COLOR_GRIS);
-    let yR = y+4;
+    let yR = finalY + 3;
+    const empLines = doc.splitTextToSize(empNombre, 85);
+    doc.setFont('helvetica','bold'); doc.setFontSize(9);
+    doc.text(empLines, PAGE_W-M, yR, {align:'right'}); yR += empLines.length*4;
+    doc.setFont('helvetica','normal'); doc.setFontSize(7.5);
+    if(empRfc){ doc.text(`RFC: ${empRfc}`, PAGE_W-M, yR, {align:'right'}); yR += 3.5; }
     if(empDir){
-      const dirLines = doc.splitTextToSize(empDir, 80);
-      doc.text(dirLines, PAGE_W-M, yR, {align:'right'}); yR += dirLines.length*3.5;
+      const dl = doc.splitTextToSize(empDir, 85);
+      doc.text(dl, PAGE_W-M, yR, {align:'right'}); yR += dl.length*3.5;
     }
-    if(empEmail){ doc.text(empEmail, PAGE_W-M, yR, {align:'right'}); yR += 4; }
-    if(empTel){ doc.text(empTel, PAGE_W-M, yR, {align:'right'}); yR += 4; }
-    if(empWeb){ doc.text(empWeb, PAGE_W-M, yR, {align:'right'}); yR += 4; }
+    if(empEmail){ doc.text(empEmail, PAGE_W-M, yR, {align:'right'}); yR += 3.5; }
+    if(empTel){ doc.text(empTel, PAGE_W-M, yR, {align:'right'}); yR += 3.5; }
+    if(empWeb){ doc.text(empWeb, PAGE_W-M, yR, {align:'right'}); yR += 3.5; }
 
-    y = Math.max(y+34, yR+4);
+    // Nombre empresa debajo del logo (izquierda)
+    if(logo){
+      doc.setFont('helvetica','bold'); doc.setFontSize(9); doc.setTextColor(...COLOR_GRIS);
+      doc.text(empNombre, M, finalY + LOGO_H + 5);
+      doc.setFont('helvetica','normal'); doc.setFontSize(7.5);
+      if(empRfc) doc.text(`RFC: ${empRfc}`, M, finalY + LOGO_H + 9);
+    }
 
-    // Banda "COTIZACIÓN"
+    finalY = Math.max(finalY + LOGO_H + (logo ? 12 : 0), yR) + 4;
+
+    // ── BANDA COTIZACIÓN ──────────────────────────────────────────────────────
     doc.setFillColor(...COLOR_HEAD);
-    doc.rect(M, y, PAGE_W-M*2, 8, 'F');
+    doc.rect(M, finalY, PAGE_W-M*2, 8, 'F');
     doc.setTextColor(255); doc.setFont('helvetica','bold'); doc.setFontSize(11);
-    doc.text('COTIZACIÓN', PAGE_W/2, y+5.5, {align:'center'});
-    y += 12;
+    doc.text('COTIZACIÓN', PAGE_W/2, finalY+5.5, {align:'center'});
+    finalY += 11;
 
-    // ── DATOS CLIENTE (izquierda) y COTIZACIÓN (derecha) ─
-    doc.setTextColor(...COLOR_GRIS);
-    const col1X = M, col2X = PAGE_W/2 + 4;
-    const boxH = 34;
-    doc.setDrawColor(...COLOR_LINE);
-    doc.rect(col1X, y, (PAGE_W/2)-M-2, boxH);
-    doc.rect(col2X, y, (PAGE_W/2)-M-2, boxH);
+    // ── CAJAS CLIENTE / COTIZACIÓN ────────────────────────────────────────────
+    const col1X = M, col2X = PAGE_W/2 + 3;
+    const colW = PAGE_W/2 - M - 3;
 
-    // Header de cada bloque
-    doc.setFillColor(240,240,240);
-    doc.rect(col1X, y, (PAGE_W/2)-M-2, 5, 'F');
-    doc.rect(col2X, y, (PAGE_W/2)-M-2, 5, 'F');
-    doc.setFont('helvetica','bold'); doc.setFontSize(8);
-    doc.text('DATOS DEL CLIENTE', col1X+2, y+3.5);
-    doc.text('DATOS DE COTIZACIÓN', col2X+2, y+3.5);
-
-    // Contenido cliente
-    doc.setFont('helvetica','normal'); doc.setFontSize(8);
     const cliDatos = [
       ['Empresa:', cli?.razon_social || ''],
       ['Contacto:', cli?.contacto_nombre || ''],
       ['Teléfono:', cli?.telefono || ''],
       ['Correo:', cli?.email || ''],
       ['Dirección:', cli?.direccion || '']
-    ];
-    let yc = y+9;
+    ].filter(([,v]) => v); // omitir vacíos
+
+    const cotDatos = [
+      ['No.:', c.numero || ''],
+      ['Fecha:', c.fecha || ''],
+      ['Válido hasta:', c.vigencia || ''],
+      ['Vendedor:', c.vendedor_nombre || PERFIL?.usuario || ''],
+      ['Condiciones:', c.condiciones_pago || condDef]
+    ].filter(([,v]) => v);
+
+    const rowsCount = Math.max(cliDatos.length, cotDatos.length);
+    const boxH = 6 + rowsCount * 5;
+
+    doc.setDrawColor(...COLOR_LINE);
+    doc.rect(col1X, finalY, colW, boxH);
+    doc.rect(col2X, finalY, colW, boxH);
+    doc.setFillColor(235,237,242);
+    doc.rect(col1X, finalY, colW, 5.5, 'F');
+    doc.rect(col2X, finalY, colW, 5.5, 'F');
+    doc.setFont('helvetica','bold'); doc.setFontSize(7.5); doc.setTextColor(...COLOR_HEAD);
+    doc.text('DATOS DEL CLIENTE', col1X+2, finalY+3.8);
+    doc.text('DATOS DE COTIZACIÓN', col2X+2, finalY+3.8);
+
+    doc.setTextColor(...COLOR_GRIS); doc.setFontSize(7.5);
+    let yc = finalY + 9;
     cliDatos.forEach(([k,v]) => {
       doc.setFont('helvetica','bold'); doc.text(k, col1X+2, yc);
       doc.setFont('helvetica','normal');
-      const vLines = doc.splitTextToSize(v, (PAGE_W/2)-M-24);
-      doc.text(vLines, col1X+20, yc);
-      yc += 5;
+      const vl = doc.splitTextToSize(String(v), colW-22);
+      doc.text(vl, col1X+21, yc);
+      yc += Math.max(5, vl.length*4);
     });
 
-    // Contenido cotización
-    const cotDatos = [
-      ['No. Cotización:', c.numero || ''],
-      ['Fecha:', c.fecha || ''],
-      ['Válido hasta:', c.vigencia || ''],
-      ['Vendedor:', c.vendedor_nombre || (PERFIL?.usuario || '')],
-      ['Condiciones:', c.condiciones_pago || condDef]
-    ];
-    let yq = y+9;
+    let yq = finalY + 9;
     cotDatos.forEach(([k,v]) => {
       doc.setFont('helvetica','bold'); doc.text(k, col2X+2, yq);
-      doc.setFont('helvetica','normal'); doc.text(String(v), col2X+30, yq);
+      doc.setFont('helvetica','normal');
+      const vl = doc.splitTextToSize(String(v), colW-26);
+      doc.text(vl, col2X+25, yq);
       yq += 5;
     });
 
-    y += boxH + 5;
+    finalY += boxH + 4;
 
-    // ── TABLA DE ITEMS ────────────────────────────────────
+    // ── TABLA DE ITEMS ────────────────────────────────────────────────────────
     const rows = items
       .filter(i => i.producto_id || (i.descripcion && i.precio_unitario > 0))
       .map((i, idx) => {
         const prod = DB.productos.find(p => p.id == i.producto_id);
         let desc = i.descripcion || prod?.nombre || '';
-        desc = desc.replace(/^\[[^\]]+\]\s*/,'').trim(); // quitar [SKU] del inicio
+        desc = desc.replace(/^\[[^\]]+\]\s*/,'').trim();
         return [
           idx+1,
           prod?.sku || '',
@@ -2641,95 +2657,112 @@ async function verCot(id){
       });
 
     doc.autoTable({
-      head: [['#','CLAVE','DESCRIPCIÓN DEL PRODUCTO/SERVICIO','CANT.','UNIDAD','PRECIO UNIT.','DESC. %','TOTAL']],
+      head: [['#','CLAVE','DESCRIPCIÓN DEL PRODUCTO/SERVICIO','CANT.','UNIDAD','P. UNIT.','DESC.%','TOTAL']],
       body: rows,
-      startY: y,
+      startY: finalY,
       theme: 'grid',
-      styles: { fontSize: 7.5, cellPadding: 1.8, textColor: [50,50,50] },
+      styles: { fontSize: 7.5, cellPadding: 1.8, textColor: [50,50,50], overflow:'linebreak' },
       headStyles: { fillColor: COLOR_HEAD, textColor: 255, fontStyle:'bold', fontSize: 7.5 },
+      alternateRowStyles: { fillColor: [248,248,252] },
       columnStyles: {
-        0: { cellWidth: 8, halign:'center' },
-        1: { cellWidth: 22, halign:'center' },
+        0: { cellWidth: 7, halign:'center' },
+        1: { cellWidth: 20, halign:'center' },
         2: { cellWidth: 'auto' },
-        3: { cellWidth: 14, halign:'center' },
-        4: { cellWidth: 16, halign:'center' },
+        3: { cellWidth: 13, halign:'center' },
+        4: { cellWidth: 14, halign:'center' },
         5: { cellWidth: 22, halign:'right' },
-        6: { cellWidth: 14, halign:'center' },
+        6: { cellWidth: 13, halign:'center' },
         7: { cellWidth: 24, halign:'right' }
       },
-      margin: { left: M, right: M }
+      margin: { left: M, right: M },
+      didDrawPage: () => { finalY = M; } // reset finalY en nueva página
     });
 
-    let finalY = doc.lastAutoTable.finalY + 4;
+    finalY = doc.lastAutoTable.finalY + 5;
 
-    // ── TOTALES ───────────────────────────────────────────
-    const subtotal = Number(c.subtotal||0);
-    const descGlobalPct = Number(c.descuento_global_pct||0);
+    // ── TOTALES ───────────────────────────────────────────────────────────────
+    const subtotal       = Number(c.subtotal||0);
+    const descGlobalPct  = Number(c.descuento_global_pct||0);
     const descGlobalMonto = subtotal * descGlobalPct/100;
     const subtotalConDesc = subtotal - descGlobalMonto;
-    const iva = Number(c.iva||0);
+    const iva   = Number(c.iva||0);
     const total = Number(c.total||0);
 
-    const totBoxX = PAGE_W - M - 70;
-    const totBoxW = 70;
-    const lineH = 5.5;
+    const totBoxX = PAGE_W - M - 72, totBoxW = 72, lineH = 5.5;
+    const numTotLines = 2 + (descGlobalPct>0?2:0);
+    checkPage(numTotLines * lineH + 20);
 
     const printTotLine = (label, val, bold=false, bg=null) => {
-      if(bg){ doc.setFillColor(...bg); doc.rect(totBoxX, finalY-3.5, totBoxW, lineH, 'F'); doc.setTextColor(255); }
+      if(bg){ doc.setFillColor(...bg); doc.rect(totBoxX, finalY-4, totBoxW, lineH, 'F'); doc.setTextColor(255); }
       else { doc.setTextColor(...COLOR_GRIS); }
-      doc.setFont('helvetica', bold ? 'bold':'normal'); doc.setFontSize(9);
+      doc.setFont('helvetica', bold?'bold':'normal'); doc.setFontSize(8.5);
       doc.text(label, totBoxX+2, finalY);
       doc.text(val, totBoxX+totBoxW-2, finalY, {align:'right'});
       finalY += lineH;
     };
 
-    printTotLine('Subtotal:', fmt$(subtotal) + ' MXN');
+    printTotLine('Subtotal:', fmt$(subtotal)+' MXN');
     if(descGlobalPct > 0){
-      printTotLine(`Descuento global (${descGlobalPct}%):`, `-${fmt$(descGlobalMonto)} MXN`);
-      printTotLine('Subtotal con descuento:', fmt$(subtotalConDesc) + ' MXN');
+      printTotLine(`Descuento (${descGlobalPct}%):`, `-${fmt$(descGlobalMonto)} MXN`);
+      printTotLine('Subtotal c/desc:', fmt$(subtotalConDesc)+' MXN');
     }
-    printTotLine(`IVA (${c.iva_porcentaje||16}%):`, fmt$(iva) + ' MXN');
-    printTotLine('TOTAL A PAGAR:', fmt$(total) + ' MXN', true, COLOR_HEAD);
+    printTotLine(`IVA (${c.iva_porcentaje||16}%):`, fmt$(iva)+' MXN');
+    printTotLine('TOTAL A PAGAR:', fmt$(total)+' MXN', true, COLOR_HEAD);
+
+    finalY += 3;
 
     // Monto en letras
-    finalY += 4;
-    doc.setFont('helvetica','italic'); doc.setFontSize(8); doc.setTextColor(80,80,80);
-    const letras = numeroALetras(total);
-    const letrasLines = doc.splitTextToSize(`Son: ${letras}`, PAGE_W - M*2);
+    checkPage(12);
+    doc.setFont('helvetica','italic'); doc.setFontSize(7.5); doc.setTextColor(...COLOR_GRIS);
+    const letrasLines = doc.splitTextToSize(`Son: ${numeroALetras(total)}`, PAGE_W-M*2);
     doc.text(letrasLines, M, finalY);
-    finalY += letrasLines.length * 4 + 3;
+    finalY += letrasLines.length*3.5 + 5;
 
-    finalY += 4;
-
-    // ── DATOS BANCARIOS ───────────────────────────────────
+    // Datos bancarios
     if(banco || cuenta){
-      doc.setTextColor(...COLOR_GRIS); doc.setFontSize(8); doc.setFont('helvetica','bold');
-      doc.text('DATOS PARA DEPÓSITO / TRANSFERENCIA:', M, finalY); finalY += 4;
+      checkPage(16);
+      doc.setDrawColor(...COLOR_LINE); doc.setLineWidth(0.3);
+      doc.line(M, finalY-2, PAGE_W-M, finalY-2);
+      doc.setFont('helvetica','bold'); doc.setFontSize(7.5); doc.setTextColor(...COLOR_GRIS);
+      doc.text('DATOS PARA TRANSFERENCIA:', M, finalY); finalY += 4;
       doc.setFont('helvetica','normal');
-      if(banco){ doc.text(`Banco: ${banco}`, M, finalY); finalY += 4; }
-      if(cuenta){ doc.text(`Cuenta: ${cuenta}`, M, finalY); finalY += 4; }
-      finalY += 2;
+      if(banco){ doc.text(`Banco: ${banco}`, M, finalY); finalY += 3.5; }
+      if(cuenta){ doc.text(`Cuenta / CLABE: ${cuenta}`, M, finalY); finalY += 3.5; }
+      finalY += 3;
     }
 
-    // ── TÉRMINOS Y CONDICIONES ────────────────────────────
+    // Términos y condiciones
     if(terminos){
-      doc.setFont('helvetica','bold'); doc.setFontSize(8);
-      doc.text('TÉRMINOS Y CONDICIONES', M, finalY); finalY += 4;
-      doc.setFont('helvetica','normal'); doc.setFontSize(7.5); doc.setTextColor(80);
-      const termLines = doc.splitTextToSize(terminos, PAGE_W - M*2);
-      doc.text(termLines, M, finalY); finalY += termLines.length*3.2 + 2;
+      checkPage(20);
+      doc.setDrawColor(...COLOR_LINE); doc.setLineWidth(0.3);
+      doc.line(M, finalY-2, PAGE_W-M, finalY-2);
+      doc.setFont('helvetica','bold'); doc.setFontSize(7.5); doc.setTextColor(...COLOR_GRIS);
+      doc.text('TÉRMINOS Y CONDICIONES:', M, finalY); finalY += 4;
+      doc.setFont('helvetica','normal'); doc.setFontSize(7);
+      const tLines = doc.splitTextToSize(terminos, PAGE_W-M*2);
+      tLines.forEach(line => { checkPage(4); doc.text(line, M, finalY); finalY += 3.5; });
+      finalY += 3;
     }
 
-    // Leyenda adicional (si existe)
+    // Leyenda adicional
     if(leyenda){
-      doc.setFontSize(7); doc.setTextColor(100);
-      const leyLines = doc.splitTextToSize(leyenda, PAGE_W - M*2);
-      doc.text(leyLines, M, finalY);
+      checkPage(8);
+      doc.setFontSize(7); doc.setTextColor(120);
+      const lLines = doc.splitTextToSize(leyenda, PAGE_W-M*2);
+      doc.text(lLines, M, finalY);
+      finalY += lLines.length*3.5;
     }
 
-    // Footer institucional
-    doc.setFontSize(7); doc.setTextColor(150);
-    doc.text('Agradecemos su preferencia. Para cualquier duda estamos a sus órdenes.', PAGE_W/2, PAGE_H-6, {align:'center'});
+    // Footer en cada página
+    const totalPages = doc.internal.getNumberOfPages();
+    for(let i=1; i<=totalPages; i++){
+      doc.setPage(i);
+      doc.setFillColor(...COLOR_HEAD);
+      doc.rect(M, PAGE_H-10, PAGE_W-M*2, 8, 'F');
+      doc.setFont('helvetica','normal'); doc.setFontSize(7); doc.setTextColor(255);
+      doc.text('Agradecemos su preferencia. Para cualquier duda estamos a sus órdenes.', PAGE_W/2, PAGE_H-5.5, {align:'center'});
+      if(totalPages>1) doc.text(`Pág. ${i}/${totalPages}`, PAGE_W-M, PAGE_H-5.5, {align:'right'});
+    }
 
     doc.save(`Cotizacion_${c.numero}.pdf`);
   } catch(e) {
