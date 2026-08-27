@@ -10,7 +10,7 @@
   <title>ERP - Comercializadora</title>
   
   <script>
-    console.log("Cargando ERP Versión: 1.2.4 - Fix CSP + hCaptcha");
+    console.log("Cargando ERP Versión: 1.2.5 - Fix: SyntaxError rConfiguracion");
     (function(){
       if(!sessionStorage.getItem('erp_cache_bust')){
         sessionStorage.setItem('erp_cache_bust','1');
@@ -697,7 +697,7 @@ async function cargarAuditLog(){
   } catch(e){ alert('Error al cargar bitácora: '+e.message); }
 }
 
-
+function rConfiguracion() {
   document.getElementById('cfg-nombre').value = CONFIG_ERP.empresa_nombre || '';
   document.getElementById('cfg-rfc').value = CONFIG_ERP.empresa_rfc || '';
   document.getElementById('cfg-dir').value = CONFIG_ERP.empresa_direccion || '';
