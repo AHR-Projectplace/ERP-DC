@@ -10,7 +10,7 @@
   <title>ERP - Comercializadora</title>
   
   <script>
-    console.log("Cargando ERP Versión: 1.3.5 - Fix PDF OC: layout + descripción limpia");
+    console.log("Cargando ERP Versión: 1.3.6 - Fix PDF: quitar texto footer");
     (function(){
       if(!sessionStorage.getItem('erp_cache_bust')){
         sessionStorage.setItem('erp_cache_bust','1');
@@ -1499,9 +1499,10 @@ async function verOC(id){
     for(let i=1;i<=totalPages;i++){
       doc.setPage(i);
       doc.setFillColor(...COLOR_HEAD); doc.rect(M,PAGE_H-10,PAGE_W-M*2,8,'F');
-      doc.setFont('helvetica','normal');doc.setFontSize(7);doc.setTextColor(255);
-      doc.text('Documento generado por ERP DelCav Industrial Supply',PAGE_W/2,PAGE_H-5.5,{align:'center'});
-      if(totalPages>1) doc.text(`Pág. ${i}/${totalPages}`,PAGE_W-M,PAGE_H-5.5,{align:'right'});
+      if(totalPages>1){
+        doc.setFont('helvetica','normal');doc.setFontSize(7);doc.setTextColor(255);
+        doc.text(`Pág. ${i}/${totalPages}`,PAGE_W-M,PAGE_H-5.5,{align:'right'});
+      }
     }
     doc.save(`OC_${o.numero}.pdf`);
   } catch(e){alert('Error al generar PDF OC: '+e.message);}
@@ -2835,9 +2836,10 @@ async function verCot(id){
       doc.setPage(i);
       doc.setFillColor(...COLOR_HEAD);
       doc.rect(M, PAGE_H-10, PAGE_W-M*2, 8, 'F');
-      doc.setFont('helvetica','normal'); doc.setFontSize(7); doc.setTextColor(255);
-      doc.text('Agradecemos su preferencia. Para cualquier duda estamos a sus órdenes.', PAGE_W/2, PAGE_H-5.5, {align:'center'});
-      if(totalPages>1) doc.text(`Pág. ${i}/${totalPages}`, PAGE_W-M, PAGE_H-5.5, {align:'right'});
+      if(totalPages>1){
+        doc.setFont('helvetica','normal'); doc.setFontSize(7); doc.setTextColor(255);
+        doc.text(`Pág. ${i}/${totalPages}`, PAGE_W-M, PAGE_H-5.5, {align:'right'});
+      }
     }
 
     doc.save(`Cotizacion_${c.numero}.pdf`);
