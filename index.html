@@ -10,7 +10,7 @@
   <title>ERP - Comercializadora</title>
   
   <script>
-    console.log("Cargando ERP Versión: 1.3.0 - MVP E1: Soft Delete + Visibilidad");
+    console.log("Cargando ERP Versión: 1.3.2 - PDF v2: Monto en letras + MXN + logo ancho");
     (function(){
       if(!sessionStorage.getItem('erp_cache_bust')){
         sessionStorage.setItem('erp_cache_bust','1');
@@ -1139,7 +1139,51 @@ function obtenerDescuentoVolumen(prod_id, cantidad){
 
 
 
-// ── SOFT DELETE + VISIBILIDAD ─────────────────────────────────────────────────
+// ── NÚMERO A LETRAS (MXN) ────────────────────────────────────────────────────
+function numeroALetras(numero){
+  const unidades = ['','UN','DOS','TRES','CUATRO','CINCO','SEIS','SIETE','OCHO','NUEVE',
+    'DIEZ','ONCE','DOCE','TRECE','CATORCE','QUINCE','DIECISÉIS','DIECISIETE','DIECIOCHO','DIECINUEVE'];
+  const decenas = ['','DIEZ','VEINTE','TREINTA','CUARENTA','CINCUENTA','SESENTA','SETENTA','OCHENTA','NOVENTA'];
+  const centenas = ['','CIENTO','DOSCIENTOS','TRESCIENTOS','CUATROCIENTOS','QUINIENTOS',
+    'SEISCIENTOS','SETECIENTOS','OCHOCIENTOS','NOVECIENTOS'];
+
+  function grupo(n){
+    if(n === 0) return '';
+    if(n === 100) return 'CIEN';
+    let r = '';
+    const c = Math.floor(n/100);
+    const d = Math.floor((n%100)/10);
+    const u = n%10;
+    if(c) r += centenas[c] + ' ';
+    if(n%100 < 20 && n%100 > 0){
+      r += unidades[n%100];
+    } else {
+      if(d) r += decenas[d] + (u ? ' Y ' : '');
+      if(u) r += unidades[u];
+    }
+    return r.trim();
+  }
+
+  const entero = Math.floor(numero);
+  const centavos = Math.round((numero - entero) * 100);
+  let texto = '';
+
+  if(entero === 0){ texto = 'CERO'; }
+  else {
+    const millones = Math.floor(entero/1000000);
+    const miles = Math.floor((entero%1000000)/1000);
+    const resto = entero%1000;
+    if(millones === 1) texto += 'UN MILLÓN ';
+    else if(millones > 1) texto += grupo(millones) + ' MILLONES ';
+    if(miles === 1) texto += 'MIL ';
+    else if(miles > 1) texto += grupo(miles) + ' MIL ';
+    if(resto) texto += grupo(resto);
+  }
+
+  return `${texto.trim()} PESOS ${String(centavos).padStart(2,'0')}/100 M.N.`;
+}
+
+
 
 let mostrarInactivos = { prod: false, cli: false, prov: false };
 let pendienteDesactivar = { tabla: '', id: null };
@@ -1347,9 +1391,9 @@ async function verOC(id){
     const doc=new jspdf.jsPDF({unit:'mm',format:'letter'});
     const empNombre=CONFIG_ERP.empresa_nombre||'MI EMPRESA S.A. DE C.V.';
     const empRfc=CONFIG_ERP.empresa_rfc||'',empDir=CONFIG_ERP.empresa_direccion||'',empTel=CONFIG_ERP.empresa_telefono||'',empEmail=CONFIG_ERP.empresa_email||'',logo=CONFIG_ERP.logo_base64;
-    const M=12,PAGE_W=216,COLOR_HEAD=[102,126,234],COLOR_GRIS=[80,80,80],COLOR_LINE=[200,200,200];
+    const M=12,PAGE_W=216,COLOR_HEAD=[10,15,44],COLOR_GRIS=[80,80,80],COLOR_LINE=[200,200,200];
     let y=M;
-    if(logo){try{doc.addImage(logo,'PNG',M,y,35,20);}catch(e){}}
+    if(logo){try{doc.addImage(logo,'PNG',M,y,55,18);}catch(e){}}
     doc.setFont('helvetica','bold');doc.setFontSize(13);doc.setTextColor(...COLOR_GRIS);
     doc.text(empNombre,logo?M+38:M,y+6);doc.setFont('helvetica','normal');doc.setFontSize(8);
     if(empRfc) doc.text(`RFC: ${empRfc}`,logo?M+38:M,y+11);
@@ -1377,7 +1421,10 @@ async function verOC(id){
     let fY=doc.lastAutoTable.finalY+4;
     const tBX=PAGE_W-M-60,tBW=60,lH=5.5;
     const pT=(label,val,bold=false,bg=null)=>{if(bg){doc.setFillColor(...bg);doc.rect(tBX,fY-3.5,tBW,lH,'F');doc.setTextColor(255);}else doc.setTextColor(...COLOR_GRIS);doc.setFont('helvetica',bold?'bold':'normal');doc.setFontSize(9);doc.text(label,tBX+2,fY);doc.text(val,tBX+tBW-2,fY,{align:'right'});fY+=lH;};
-    pT('Subtotal:',fmt$(o.subtotal));pT(`IVA (${o.iva_porcentaje||16}%):`,fmt$(o.iva));pT('TOTAL:',fmt$(o.total),true,COLOR_HEAD);
+    pT('Subtotal:',fmt$(o.subtotal)+' MXN');pT(`IVA (${o.iva_porcentaje||16}%):`,fmt$(o.iva)+' MXN');pT('TOTAL:',fmt$(o.total)+' MXN',true,COLOR_HEAD);
+    fY+=4; doc.setFont('helvetica','italic');doc.setFontSize(8);doc.setTextColor(80,80,80);
+    const letrasOC=doc.splitTextToSize(`Son: ${numeroALetras(o.total)}`,PAGE_W-M*2);
+    doc.text(letrasOC,M,fY); fY+=letrasOC.length*4+3;
     if(o.notas){fY+=6;doc.setFont('helvetica','italic');doc.setFontSize(8);doc.setTextColor(...COLOR_GRIS);doc.text(`Notas: ${o.notas}`,M,fY);}
     doc.setFontSize(7);doc.setTextColor(150);doc.text('Documento generado por ERP DelCav Industrial Supply',PAGE_W/2,279-6,{align:'center'});
     doc.save(`OC_${o.numero}.pdf`);
@@ -2464,7 +2511,7 @@ async function verCot(id){
 
     // Constantes de layout
     const PAGE_W = 216, PAGE_H = 279, M = 12;
-    const COLOR_HEAD = [102, 126, 234]; // #667eea
+    const COLOR_HEAD = [10, 15, 44]; // #0a0f2c
     const COLOR_GRIS = [80, 80, 80];
     const COLOR_LINE = [200, 200, 200];
 
@@ -2473,7 +2520,7 @@ async function verCot(id){
 
     // Logo (opcional, arriba izquierda)
     if(logo){
-      try { doc.addImage(logo, 'PNG', M, y, 35, 20); } catch(e){ console.warn('Logo error:', e); }
+      try { doc.addImage(logo, 'PNG', M, y, 55, 18); } catch(e){ console.warn('Logo error:', e); }
     }
 
     // Empresa a la izquierda
@@ -2611,13 +2658,21 @@ async function verCot(id){
       finalY += lineH;
     };
 
-    printTotLine('Subtotal:', fmt$(subtotal));
+    printTotLine('Subtotal:', fmt$(subtotal) + ' MXN');
     if(descGlobalPct > 0){
-      printTotLine(`Descuento global (${descGlobalPct}%):`, `-${fmt$(descGlobalMonto)}`);
-      printTotLine('Subtotal con descuento:', fmt$(subtotalConDesc));
+      printTotLine(`Descuento global (${descGlobalPct}%):`, `-${fmt$(descGlobalMonto)} MXN`);
+      printTotLine('Subtotal con descuento:', fmt$(subtotalConDesc) + ' MXN');
     }
-    printTotLine(`IVA (${c.iva_porcentaje||16}%):`, fmt$(iva));
-    printTotLine('TOTAL A PAGAR:', fmt$(total), true, COLOR_HEAD);
+    printTotLine(`IVA (${c.iva_porcentaje||16}%):`, fmt$(iva) + ' MXN');
+    printTotLine('TOTAL A PAGAR:', fmt$(total) + ' MXN', true, COLOR_HEAD);
+
+    // Monto en letras
+    finalY += 4;
+    doc.setFont('helvetica','italic'); doc.setFontSize(8); doc.setTextColor(80,80,80);
+    const letras = numeroALetras(total);
+    const letrasLines = doc.splitTextToSize(`Son: ${letras}`, PAGE_W - M*2);
+    doc.text(letrasLines, M, finalY);
+    finalY += letrasLines.length * 4 + 3;
 
     finalY += 4;
 
