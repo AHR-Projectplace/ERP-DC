@@ -10,7 +10,7 @@
   <title>ERP - Comercializadora</title>
   
   <script>
-    console.log("Cargando ERP Versión: 1.2.5 - Fix: SyntaxError rConfiguracion");
+    console.log("Cargando ERP Versión: 1.2.6 - MFA: Autenticación en 2 pasos");
     (function(){
       if(!sessionStorage.getItem('erp_cache_bust')){
         sessionStorage.setItem('erp_cache_bust','1');
@@ -99,6 +99,7 @@
     <h1>📊 ERP Comercializadora</h1>
     <div class="nav-user">
       <span id="nu-name"></span> <span id="nu-role" class="badge"></span>
+      <button id="btn-mfa-nav" class="btn" style="background:#27ae60;color:white;width:auto;font-size:12px;padding:6px 12px;" onclick="abrirMFASetup()" title="Gestionar autenticación en 2 pasos">🛡️ MFA</button>
       <button class="btn-danger" onclick="doLogout()">Salir</button>
     </div>
   </div>
@@ -360,6 +361,48 @@
 </div></div>
 
 <div id="m-reset-pass" class="modal"><div class="modal-content" style="max-width:400px;">
+
+<!-- MFA VERIFY MODAL -->
+<div id="m-mfa-verify" class="modal"><div class="modal-content" style="max-width:380px;">
+  <div class="modal-header"><h3>🔐 Verificación en 2 pasos</h3></div>
+  <p style="color:#555;font-size:14px;margin-bottom:15px;">Ingresa el código de 6 dígitos de tu aplicación autenticadora.</p>
+  <div class="form-group">
+    <label>Código de autenticación</label>
+    <input type="text" id="mfa-code" placeholder="000000" maxlength="6" inputmode="numeric" pattern="[0-9]*" style="font-size:24px;letter-spacing:8px;text-align:center;" onkeydown="if(event.key==='Enter')doMFAVerify()">
+  </div>
+  <button class="btn btn-primary" onclick="doMFAVerify()">Verificar</button>
+  <div id="mfa-verify-err" class="alert alert-danger"></div>
+  <div style="text-align:center;margin-top:12px;">
+    <a href="#" onclick="doLogout();cM('m-mfa-verify')" style="font-size:13px;color:#999;">Cancelar y salir</a>
+  </div>
+</div></div>
+
+<!-- MFA SETUP MODAL -->
+<div id="m-mfa-setup" class="modal"><div class="modal-content" style="max-width:440px;">
+  <div class="modal-header"><h3>🛡️ Activar Autenticación en 2 pasos</h3><button class="modal-close" id="btn-close-mfa-setup" onclick="cM('m-mfa-setup')" style="display:none;">×</button></div>
+  <div id="mfa-setup-step1">
+    <p style="color:#555;font-size:14px;margin-bottom:15px;">Escanea este código QR con <strong>Google Authenticator</strong>, <strong>Authy</strong> o cualquier app compatible con TOTP.</p>
+    <div style="text-align:center;margin-bottom:15px;">
+      <img id="mfa-qr" style="width:200px;height:200px;border:1px solid #ddd;border-radius:8px;" src="">
+    </div>
+    <div style="background:#f9f9f9;padding:10px;border-radius:6px;margin-bottom:15px;">
+      <p style="font-size:12px;color:#666;margin-bottom:5px;">¿No puedes escanear? Ingresa esta clave manualmente:</p>
+      <code id="mfa-secret" style="font-size:13px;word-break:break-all;color:#333;"></code>
+    </div>
+    <div class="form-group">
+      <label>Confirma con el código de 6 dígitos</label>
+      <input type="text" id="mfa-setup-code" placeholder="000000" maxlength="6" inputmode="numeric" style="font-size:20px;letter-spacing:6px;text-align:center;" onkeydown="if(event.key==='Enter')doMFAEnrollVerify()">
+    </div>
+    <button class="btn btn-primary" onclick="doMFAEnrollVerify()">Activar MFA</button>
+    <div id="mfa-setup-err" class="alert alert-danger"></div>
+  </div>
+  <div id="mfa-setup-ok" style="display:none;text-align:center;padding:20px;">
+    <div style="font-size:48px;">✅</div>
+    <h3 style="color:#27ae60;margin:10px 0;">¡MFA Activado!</h3>
+    <p style="color:#555;font-size:14px;">Tu cuenta ahora está protegida con autenticación en 2 pasos.</p>
+    <button class="btn btn-primary" style="margin-top:15px;" onclick="cM('m-mfa-setup');initApp()">Continuar</button>
+  </div>
+</div></div>
   <div class="modal-header"><h3>🔑 Nueva Contraseña</h3></div>
   <p style="margin-bottom:15px;color:#555;font-size:14px;">Ingresa tu nueva contraseña para acceder al ERP.</p>
   <div class="form-group"><label>Nueva contraseña (mín. 8 caracteres)</label><input type="password" id="rp-pass1" placeholder="••••••••"></div>
@@ -556,7 +599,132 @@ function sv(id){
   } catch(e) { console.error(e); alert("Error al cambiar de vista."); }
 }
 
-// hCaptcha callbacks
+// ── MFA (Autenticación en 2 pasos) ───────────────────────────────────────────
+
+let mfaFactorId = null;   // ID del factor TOTP al hacer login
+let mfaEnrollId = null;   // ID del factor al enrolar
+
+// Verificar nivel AAL y factores tras el login
+async function checkMFA(){
+  try {
+    const {data: aal} = await SB.auth.mfa.getAuthenticatorAssuranceLevel();
+
+    // Si nextLevel es aal2, el usuario tiene MFA y debe verificarlo
+    if(aal?.nextLevel === 'aal2' && aal?.currentLevel !== 'aal2'){
+      const {data: factors} = await SB.auth.mfa.listFactors();
+      const totp = factors?.totp?.find(f => f.status === 'verified');
+      if(totp){
+        mfaFactorId = totp.id;
+        document.getElementById('mfa-code').value = '';
+        document.getElementById('mfa-verify-err').classList.remove('show');
+        oM('m-mfa-verify');
+        setTimeout(()=>document.getElementById('mfa-code').focus(), 300);
+        return false; // No continuar al app todavía
+      }
+    }
+
+    // Super_admin sin MFA → forzar enrollment
+    if(PERFIL?.rol === 'super_admin'){
+      const {data: factors} = await SB.auth.mfa.listFactors();
+      const tieneTotp = factors?.totp?.some(f => f.status === 'verified');
+      if(!tieneTotp){
+        await iniciarMFAEnroll(true); // forzado
+        return false;
+      }
+    }
+
+    return true; // OK, puede entrar al app
+  } catch(e){
+    console.warn('MFA check error:', e.message);
+    return true; // Si falla el check, dejar pasar (no bloquear por error de red)
+  }
+}
+
+// Verificar código MFA al login
+async function doMFAVerify(){
+  try {
+    const code = document.getElementById('mfa-code').value.trim().replace(/\s/g,'');
+    const errEl = document.getElementById('mfa-verify-err');
+    errEl.classList.remove('show');
+    if(code.length !== 6){ errEl.textContent='Ingresa los 6 dígitos'; errEl.classList.add('show'); return; }
+    if(!mfaFactorId){ errEl.textContent='Error: factor no encontrado. Reinicia sesión.'; errEl.classList.add('show'); return; }
+
+    const {error} = await SB.auth.mfa.challengeAndVerify({factorId: mfaFactorId, code});
+    if(error){ errEl.textContent='Código incorrecto. Intenta de nuevo.'; errEl.classList.add('show'); document.getElementById('mfa-code').value=''; document.getElementById('mfa-code').focus(); return; }
+
+    cM('m-mfa-verify');
+    auditLog('LOGIN_MFA','auth',SESSION.id,'MFA verificado');
+    initApp();
+  } catch(e){ document.getElementById('mfa-verify-err').textContent='Error: '+e.message; document.getElementById('mfa-verify-err').classList.add('show'); }
+}
+
+// Iniciar enrollment de MFA
+async function iniciarMFAEnroll(forzado=false){
+  try {
+    document.getElementById('mfa-setup-step1').style.display='';
+    document.getElementById('mfa-setup-ok').style.display='none';
+    document.getElementById('mfa-setup-err').classList.remove('show');
+    document.getElementById('mfa-setup-code').value='';
+
+    // Botón cerrar: solo visible si no es forzado
+    document.getElementById('btn-close-mfa-setup').style.display = forzado ? 'none' : '';
+
+    const {data,error} = await SB.auth.mfa.enroll({
+      factorType: 'totp',
+      friendlyName: 'ERP DelCav - ' + (SESSION?.email||'')
+    });
+    if(error) throw error;
+
+    mfaEnrollId = data.id;
+    document.getElementById('mfa-qr').src = data.totp.qr_code;
+    document.getElementById('mfa-secret').textContent = data.totp.secret;
+    oM('m-mfa-setup');
+    setTimeout(()=>document.getElementById('mfa-setup-code').focus(), 300);
+  } catch(e){ alert('Error al iniciar MFA: '+e.message); }
+}
+
+// Botón MFA desde navbar (para usuarios que quieran activarlo voluntariamente)
+async function abrirMFASetup(){
+  try {
+    const {data:factors} = await SB.auth.mfa.listFactors();
+    const tieneTotp = factors?.totp?.some(f=>f.status==='verified');
+    if(tieneTotp){
+      if(confirm('Ya tienes MFA activado. ¿Deseas desactivarlo?\n\n⚠️ Para super_admin se recomienda mantenerlo activo.')){
+        const factorId = factors.totp.find(f=>f.status==='verified').id;
+        const {error} = await SB.auth.mfa.unenroll({factorId});
+        if(error) throw error;
+        auditLog('MFA_OFF','auth',SESSION.id,'MFA desactivado');
+        alert('MFA desactivado.');
+        document.getElementById('btn-mfa-nav').style.background='#e74c3c';
+        document.getElementById('btn-mfa-nav').title='MFA desactivado — clic para activar';
+      }
+    } else {
+      await iniciarMFAEnroll(false);
+    }
+  } catch(e){ alert('Error: '+e.message); }
+}
+
+// Confirmar enrollment con código
+async function doMFAEnrollVerify(){
+  try {
+    const code = document.getElementById('mfa-setup-code').value.trim().replace(/\s/g,'');
+    const errEl = document.getElementById('mfa-setup-err');
+    errEl.classList.remove('show');
+    if(code.length !== 6){ errEl.textContent='Ingresa los 6 dígitos del autenticador'; errEl.classList.add('show'); return; }
+    if(!mfaEnrollId){ errEl.textContent='Error: reinicia el proceso'; errEl.classList.add('show'); return; }
+
+    const {error} = await SB.auth.mfa.challengeAndVerify({factorId: mfaEnrollId, code});
+    if(error){ errEl.textContent='Código incorrecto. Revisa tu autenticador e intenta de nuevo.'; errEl.classList.add('show'); document.getElementById('mfa-setup-code').value=''; document.getElementById('mfa-setup-code').focus(); return; }
+
+    auditLog('MFA_ON','auth',SESSION.id,'MFA activado');
+    document.getElementById('mfa-setup-step1').style.display='none';
+    document.getElementById('mfa-setup-ok').style.display='';
+    document.getElementById('btn-mfa-nav').style.background='#27ae60';
+    document.getElementById('btn-mfa-nav').title='MFA activo ✅';
+  } catch(e){ document.getElementById('mfa-setup-err').textContent='Error: '+e.message; document.getElementById('mfa-setup-err').classList.add('show'); }
+}
+
+
 let hcaptchaToken = null;
 function onHcaptchaSuccess(token){
   hcaptchaToken = token;
@@ -594,7 +762,8 @@ async function doLogin(){
     if(!perfil.activo){ await SB.auth.signOut(); errEl.textContent='Usuario inactivo. Contacta al administrador.'; errEl.classList.add('show'); return; }
     PERFIL = perfil;
     auditLog('LOGIN','auth',SESSION.id,`Login exitoso: ${SESSION.email}`);
-    initApp();
+    const puedeEntrar = await checkMFA();
+    if(puedeEntrar) initApp();
   } catch(e) { alert("Error en login: " + e.message); }
 }
 
@@ -628,6 +797,14 @@ async function initApp(){
   document.getElementById('nb-usuarios').style.display = PERFIL.rol === 'super_admin' ? '' : 'none';
   document.getElementById('nb-config').style.display   = PERFIL.rol === 'super_admin' ? '' : 'none';
   document.getElementById('nb-proveedores').style.display = PERFIL.rol === 'super_admin' ? '' : 'none';
+
+  // Estado del botón MFA
+  SB.auth.mfa.listFactors().then(({data}) => {
+    const tieneTotp = data?.totp?.some(f=>f.status==='verified');
+    const btn = document.getElementById('btn-mfa-nav');
+    if(tieneTotp){ btn.style.background='#27ae60'; btn.title='MFA activo ✅ — clic para gestionar'; }
+    else { btn.style.background='#e74c3c'; btn.title='MFA desactivado — clic para activar'; }
+  }).catch(()=>{});
   const esSA = PERFIL.rol === 'super_admin';
   document.getElementById('btn-import-prod').style.display   = esSA ? '' : 'none';
   document.getElementById('btn-plantilla-prod').style.display = esSA ? '' : 'none';
@@ -2464,8 +2641,8 @@ async function doResetPassword(){
         const {data: perfil} = await SB.from('perfiles').select('*').eq('id', SESSION.id).single();
         if(perfil && perfil.activo){
           PERFIL = perfil;
-          appIniciado = true;
-          initApp();
+          const puedeEntrar = await checkMFA();
+          if(puedeEntrar){ appIniciado = true; initApp(); }
         } else {
           await SB.auth.signOut();
         }
