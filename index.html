@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' cdn.jsdelivr.net cdnjs.cloudflare.com 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' *.supabase.co; img-src 'self' data: blob:; font-src 'self' data:; frame-src 'none'; object-src 'none';">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' cdn.jsdelivr.net cdnjs.cloudflare.com js.hcaptcha.com hcaptcha.com 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' *.supabase.co *.hcaptcha.com; img-src 'self' data: blob: *.hcaptcha.com; font-src 'self' data:; frame-src hcaptcha.com *.hcaptcha.com; object-src 'none';">
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
@@ -10,7 +10,7 @@
   <title>ERP - Comercializadora</title>
   
   <script>
-    console.log("Cargando ERP Versión: 1.2.2 - Seguridad 2.0: XSS + CSP + Audit Log");
+    console.log("Cargando ERP Versión: 1.2.3 - Seguridad: hCaptcha en Login");
     (function(){
       if(!sessionStorage.getItem('erp_cache_bust')){
         sessionStorage.setItem('erp_cache_bust','1');
@@ -25,6 +25,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="https://js.hcaptcha.com/1/api.js" async defer></script>
   <style>
     *{margin:0;padding:0;box-sizing:border-box;}
     body{font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;background:#f5f5f5;color:#333;}
@@ -83,7 +84,8 @@
     <h2>🔑 Iniciar Sesión</h2>
     <div class="form-group"><label>Correo electrónico</label><input type="email" id="lg-email" placeholder="correo@empresa.com" onkeydown="if(event.key==='Enter')doLogin()"></div>
     <div class="form-group"><label>Contraseña</label><input type="password" id="lg-pass" placeholder="••••••••" onkeydown="if(event.key==='Enter')doLogin()"></div>
-    <button class="btn btn-primary" onclick="doLogin()">Entrar</button>
+    <div class="h-captcha" data-sitekey="713e7724-3106-426c-b500-54aa017ce5a0" data-callback="onHcaptchaSuccess" data-expired-callback="onHcaptchaExpired" style="margin-bottom:10px;"></div>
+    <button class="btn btn-primary" id="btn-login" onclick="doLogin()" disabled>Entrar</button>
     <div id="lg-err" class="alert alert-danger"></div>
     <div id="lg-ok" class="alert alert-success"></div>
     <div style="text-align:center;margin-top:12px;">
@@ -554,6 +556,17 @@ function sv(id){
   } catch(e) { console.error(e); alert("Error al cambiar de vista."); }
 }
 
+// hCaptcha callbacks
+let hcaptchaToken = null;
+function onHcaptchaSuccess(token){
+  hcaptchaToken = token;
+  document.getElementById('btn-login').disabled = false;
+}
+function onHcaptchaExpired(){
+  hcaptchaToken = null;
+  document.getElementById('btn-login').disabled = true;
+}
+
 async function doLogin(){
   try {
     const email = document.getElementById('lg-email').value.trim();
@@ -561,8 +574,13 @@ async function doLogin(){
     const errEl = document.getElementById('lg-err');
     errEl.classList.remove('show');
     if(!email||!pass){ errEl.textContent='Ingresa correo y contraseña'; errEl.classList.add('show'); return; }
-    const {data, error} = await SB.auth.signInWithPassword({email, password: pass});
-    if(error){ errEl.textContent='Error: '+error.message; errEl.classList.add('show'); return; }
+    if(!hcaptchaToken){ errEl.textContent='Completa la verificación de seguridad'; errEl.classList.add('show'); return; }
+
+    const {data, error} = await SB.auth.signInWithPassword({
+      email, password: pass,
+      options: { captchaToken: hcaptchaToken }
+    });
+    if(error){ errEl.textContent='Error: '+error.message; errEl.classList.add('show'); hcaptcha.reset(); hcaptchaToken=null; document.getElementById('btn-login').disabled=true; return; }
     SESSION = data.user;
     const {data: perfil, error: ep} = await SB.from('perfiles').select('*').eq('id', SESSION.id).single();
     if(ep || !perfil){ await SB.auth.signOut(); errEl.textContent='Sin perfil asignado. Contacta al administrador.'; errEl.classList.add('show'); return; }
