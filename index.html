@@ -2,6 +2,7 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' cdn.jsdelivr.net cdnjs.cloudflare.com 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' *.supabase.co; img-src 'self' data: blob:; font-src 'self' data:; frame-src 'none'; object-src 'none';">
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
@@ -9,7 +10,7 @@
   <title>ERP - Comercializadora</title>
   
   <script>
-    console.log("Cargando ERP Versión: 1.2.1 - MVP B2: Módulo Órdenes de Compra");
+    console.log("Cargando ERP Versión: 1.2.2 - Seguridad 2.0: XSS + CSP + Audit Log");
     (function(){
       if(!sessionStorage.getItem('erp_cache_bust')){
         sessionStorage.setItem('erp_cache_bust','1');
@@ -222,6 +223,13 @@
           <div class="form-group"><label>Leyenda adicional (opcional)</label><textarea id="cfg-leyenda" rows="2"></textarea></div>
 
           <button class="btn btn-primary" onclick="guardarConfiguracion()">Guardar Configuración</button>
+
+          <h3 style="margin:30px 0 15px 0;color:#e74c3c;">🔐 Bitácora de Seguridad</h3>
+          <button class="btn" style="width:auto;background:#e74c3c;color:white;margin-bottom:10px;" onclick="cargarAuditLog()">Ver Bitácora</button>
+          <div id="audit-container" style="display:none;">
+            <table><thead><tr><th>Fecha</th><th>Usuario</th><th>Acción</th><th>Tabla</th><th>Detalle</th></tr></thead>
+            <tbody id="audit-tbody"></tbody></table>
+          </div>
         </div>
       </div>
 
@@ -477,6 +485,31 @@ function mostrarErrorDebug(msg){
   box.textContent += msg + '\n';
 }
 
+// ── SEGURIDAD: Sanitización XSS ──────────────────────────────────────────────
+function escHtml(str){
+  if(str === null || str === undefined) return '';
+  return String(str)
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;')
+    .replace(/'/g,'&#039;');
+}
+
+// ── AUDIT LOG ─────────────────────────────────────────────────────────────────
+async function auditLog(accion, tabla='', registroId='', detalle=''){
+  try {
+    if(!SESSION) return;
+    await SB.from('audit_log').insert({
+      usuario_id: SESSION.id,
+      usuario_nombre: PERFIL?.usuario || SESSION.email,
+      accion, tabla,
+      registro_id: String(registroId||''),
+      detalle: String(detalle||'').slice(0,500) // max 500 chars
+    });
+  } catch(e){ console.warn('Audit log error (no crítico):', e.message); }
+}
+
 const SUPABASE_URL = 'https://yknwptsqamvqnoidtmcv.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_YxtAYV_g4kffir5jyQMnYQ_-_D_Ulvo';
 let SB = null;
@@ -535,6 +568,7 @@ async function doLogin(){
     if(ep || !perfil){ await SB.auth.signOut(); errEl.textContent='Sin perfil asignado. Contacta al administrador.'; errEl.classList.add('show'); return; }
     if(!perfil.activo){ await SB.auth.signOut(); errEl.textContent='Usuario inactivo. Contacta al administrador.'; errEl.classList.add('show'); return; }
     PERFIL = perfil;
+    auditLog('LOGIN','auth',SESSION.id,`Login exitoso: ${SESSION.email}`);
     initApp();
   } catch(e) { alert("Error en login: " + e.message); }
 }
@@ -554,6 +588,7 @@ async function doForgotPassword(){
 }
 
 async function doLogout(){
+  auditLog('LOGOUT','auth',SESSION?.id,'Cierre de sesión');
   await SB.auth.signOut();
   SESSION = null; PERFIL = null;
   document.getElementById('app').classList.remove('active');
@@ -619,7 +654,25 @@ async function loadAll(){
 }
 
 // CONFIGURACIÓN DE IDENTIDAD
-function rConfiguracion() {
+async function cargarAuditLog(){
+  try {
+    const {data,error} = await SB.from('audit_log').select('*').order('created_at',{ascending:false}).limit(100);
+    if(error) throw error;
+    const container = document.getElementById('audit-container');
+    container.style.display = '';
+    document.getElementById('audit-tbody').innerHTML = (data||[]).map(r =>
+      `<tr>
+        <td style="font-size:11px;">${new Date(r.created_at).toLocaleString('es-MX')}</td>
+        <td>${escHtml(r.usuario_nombre||'-')}</td>
+        <td><span class="badge ${r.accion==='LOGIN'?'bg':r.accion==='DELETE'?'br':r.accion==='LOGOUT'?'bgr':'ba'}">${escHtml(r.accion)}</span></td>
+        <td>${escHtml(r.tabla||'-')}</td>
+        <td style="font-size:12px;">${escHtml(r.detalle||'-')}</td>
+      </tr>`
+    ).join('')||'<tr><td colspan="5" class="empty">Sin registros</td></tr>';
+  } catch(e){ alert('Error al cargar bitácora: '+e.message); }
+}
+
+
   document.getElementById('cfg-nombre').value = CONFIG_ERP.empresa_nombre || '';
   document.getElementById('cfg-rfc').value = CONFIG_ERP.empresa_rfc || '';
   document.getElementById('cfg-dir').value = CONFIG_ERP.empresa_direccion || '';
@@ -711,8 +764,8 @@ function rDashboard(){
     document.getElementById('db-stock-alerta').textContent = bajoMinimo.length;
     document.getElementById('db-stock-tbody').innerHTML = bajoMinimo.map(p =>
       `<tr style="background:#fff5f5;">
-        <td><code style="font-weight:bold;background:#fdd;padding:2px 6px;border-radius:3px;">${p.sku||'-'}</code></td>
-        <td>${p.nombre}</td>
+        <td><code style="font-weight:bold;background:#fdd;padding:2px 6px;border-radius:3px;">${escHtml(p.sku||'-')}</code></td>
+        <td>${escHtml(p.nombre)}</td>
         <td style="color:#e74c3c;font-weight:bold;">${p.stock_actual}</td>
         <td>${p.stock_minimo||0}</td>
       </tr>`
@@ -760,9 +813,9 @@ function rProductos(){
       ? `<span style="color:#e74c3c;font-weight:bold;">⚠️ ${p.stock_actual}</span>`
       : p.stock_actual;
     return `<tr style="${bajo?'background:#fff5f5;':''}">
-      <td><code style="font-weight:bold;background:#eaeaea;padding:2px 6px;border-radius:3px;">${p.sku||'-'}</code></td>
-      <td>${p.nombre}</td>
-      <td><span class="badge bgr">${p.unidad_medida||'pza'}</span></td>
+      <td><code style="font-weight:bold;background:#eaeaea;padding:2px 6px;border-radius:3px;">${escHtml(p.sku||'-')}</code></td>
+      <td>${escHtml(p.nombre)}</td>
+      <td><span class="badge bgr">${escHtml(p.unidad_medida||'pza')}</span></td>
       <td>${fmt$(p.precio_venta)}</td>
       <td>${stockCell}</td>
       <td><button class="btn-sm btn-primary" onclick="editProd(${p.id})">Editar</button></td>
@@ -832,12 +885,12 @@ function rOrdenes(){
     const puedeEditar = PERFIL?.rol==='super_admin';
     const siguienteEstado = {borrador:'enviada',enviada:'recibida_parcial',recibida_parcial:'recibida'}[o.estado];
     return `<tr>
-      <td><strong>${o.numero}</strong></td>
-      <td>${prov?.nombre||'-'}</td>
-      <td>${o.fecha||''}</td>
-      <td>${o.fecha_entrega||'-'}</td>
+      <td><strong>${escHtml(o.numero)}</strong></td>
+      <td>${escHtml(prov?.nombre||'-')}</td>
+      <td>${escHtml(o.fecha||'')}</td>
+      <td>${escHtml(o.fecha_entrega||'-')}</td>
       <td>${fmt$(o.total)}</td>
-      <td><span class="badge ${badge}">${o.estado.replace('_',' ')}</span></td>
+      <td><span class="badge ${badge}">${escHtml(o.estado.replace('_',' '))}</span></td>
       <td style="display:flex;gap:4px;flex-wrap:wrap;">
         <button class="btn-sm btn-primary" onclick="verOC(${o.id})">PDF</button>
         ${puedeEditar && o.estado==='borrador' ? `<button class="btn-sm" onclick="editOC(${o.id})">Editar</button>` : ''}
@@ -934,6 +987,7 @@ async function guardarOC(){
     }
     await SB.from('oc_items').insert(ocLineas.map(l=>({oc_id:ocId,producto_id:l.producto_id||null,descripcion:l.descripcion,cantidad:l.cantidad,precio_unitario:l.precio_unitario,importe:l.cantidad*l.precio_unitario})));
     cM('m-oc'); await loadAll(); rOrdenes();
+    auditLog(currentOCId?'UPDATE':'CREATE','ordenes_compra',ocId,`OC: ${payload.numero} | Total: ${payload.total}`);
   } catch(e){ alert('Error al guardar OC: '+e.message); }
 }
 
@@ -1011,10 +1065,10 @@ function rProveedores(){
   document.getElementById('prov-tbody').innerHTML = lista.map(p => {
     const numProds = DB.producto_proveedores.filter(pp => pp.proveedor_id === p.id).length;
     return `<tr>
-      <td><strong>${p.nombre}</strong></td>
-      <td>${p.contacto||'-'}</td>
-      <td>${p.telefono||'-'}</td>
-      <td>${p.email||'-'}</td>
+      <td><strong>${escHtml(p.nombre)}</strong></td>
+      <td>${escHtml(p.contacto||'-')}</td>
+      <td>${escHtml(p.telefono||'-')}</td>
+      <td>${escHtml(p.email||'-')}</td>
       <td><span class="badge ba">${numProds} producto${numProds!==1?'s':''}</span></td>
       <td><button class="btn-sm btn-primary" onclick="editProv('${p.id}')">Editar</button></td>
     </tr>`;
@@ -1491,6 +1545,7 @@ async function guardarProducto(){
     }
     
     cM('m-prod'); await loadAll(); rProductos();
+    auditLog(currentProdId?'UPDATE':'CREATE','productos',targetId,`SKU: ${sku} | ${nombre}`);
   } catch(e) { alert("Error al guardar producto: " + e.message); }
 }
 
@@ -1499,6 +1554,7 @@ async function eliminarProducto(){
   if(confirm('¿Eliminar esta variante? Removerá su inventario y precios.')){
     try {
       await SB.from('productos').delete().eq('id', currentProdId);
+      auditLog('DELETE','productos',currentProdId,'Producto eliminado');
       cM('m-prod'); await loadAll(); rProductos();
     } catch(e) { alert("Error al eliminar: " + e.message); }
   }
@@ -1646,7 +1702,7 @@ function rClientes(){
     (c.razon_social||'').toLowerCase().includes(q) || (c.rfc||'').toLowerCase().includes(q)
   ) : DB.clientes;
   document.getElementById('cli-tbody').innerHTML=lista.map(c=>
-    `<tr><td>${c.razon_social}</td><td>${c.rfc||'-'}</td><td><span class="badge ba">${c.lista_precios||'general'}</span></td><td><button class="btn-sm btn-primary" onclick="editCli(${c.id})">Editar</button></td></tr>`
+    `<tr><td>${escHtml(c.razon_social)}</td><td>${escHtml(c.rfc||'-')}</td><td><span class="badge ba">${escHtml(c.lista_precios||'general')}</span></td><td><button class="btn-sm btn-primary" onclick="editCli(${c.id})">Editar</button></td></tr>`
   ).join('')||'<tr><td colspan="4" class="empty">Sin resultados</td></tr>';
 }
 
@@ -1693,6 +1749,7 @@ async function guardarCliente(){
     }
 
     cM('m-cli'); await loadAll(); rClientes();
+    auditLog(currentCliId?'UPDATE':'CREATE','clientes',currentCliId||'nuevo',`${rs} | RFC: ${rfc}`);
   } catch(e) { alert("Error al guardar cliente: " + e.message); }
 }
 function editCli(id){openCliModal(id);}
@@ -1716,10 +1773,10 @@ function rCotizaciones(){
     const btnRevertir = (puedeEditar && c.estado==='aceptada')
       ? `<button class="btn-sm btn-danger" onclick="cambiarEstadoCot(${c.id},'borrador')">Revertir</button>` : '';
     return `<tr>
-      <td>${c.numero}</td>
-      <td>${cli?cli.razon_social:'-'}</td>
+      <td>${escHtml(c.numero)}</td>
+      <td>${escHtml(cli?cli.razon_social:'-')}</td>
       <td>${fmt$(c.total)}</td>
-      <td><span class="badge ${badge}">${c.estado}</span></td>
+      <td><span class="badge ${badge}">${escHtml(c.estado)}</span></td>
       <td>
         <button class="btn-sm btn-primary" onclick="verCot(${c.id})">PDF</button>
         <button class="btn-sm" onclick="clonarCotizacion(${c.id})" title="Clonar">📋</button>
@@ -1760,6 +1817,7 @@ async function clonarCotizacion(id){
       await SB.from('cotizacion_items').insert(clonesItems);
     }
     await loadAll(); rCotizaciones();
+    auditLog('CREATE','cotizaciones',numero,`Cliente: ${cliId} | Total: ${total}`);
     alert(`Cotización clonada como ${numero}`);
   } catch(e){ alert('Error al clonar: '+e.message); }
 }
@@ -1953,6 +2011,7 @@ async function cambiarEstadoCot(id, estado){
     }
 
     await SB.from('cotizaciones').update({ estado, updated_at: new Date().toISOString() }).eq('id', id);
+    auditLog('ESTADO','cotizaciones',id,`${cotActual.estado} → ${estado}`);
     await loadAll();
     rCotizaciones();
     rInventario();
@@ -2191,7 +2250,7 @@ function rInventario(){
   document.getElementById('inv-tbody').innerHTML=lista.map(m=>{
     const p=DB.productos.find(x=>x.id===m.producto_id);
     const tipo=m.tipo==='entrada'?'<span class="badge bg">Entrada</span>':m.tipo==='salida'?'<span class="badge br">Salida</span>':'<span class="badge ba">Ajuste</span>';
-    return `<tr><td><code style="font-weight:bold; background:#eaeaea; padding:2px 6px; border-radius:3px;">${p?.sku || '-'}</code></td><td>${p?p.nombre:'-'}</td><td>${tipo}</td><td>${m.cantidad}</td></tr>`;
+    return `<tr><td><code style="font-weight:bold; background:#eaeaea; padding:2px 6px; border-radius:3px;">${escHtml(p?.sku || '-')}</code></td><td>${escHtml(p?p.nombre:'-')}</td><td>${tipo}</td><td>${m.cantidad}</td></tr>`;
   }).join('')||'<tr><td colspan="5" class="empty">Sin movimientos</td></tr>';
 }
 
@@ -2227,8 +2286,8 @@ async function rUsuarios(){
     const {data: perfiles} = await SB.from('perfiles').select('*').order('creado_en', {ascending: false});
     document.getElementById('usr-tbody').innerHTML = (perfiles||[]).map(p =>
       `<tr>
-        <td>${p.usuario}</td>
-        <td>${p.rol==='super_admin'?'Super Admin':'Usuario'}</td>
+        <td>${escHtml(p.usuario)}</td>
+        <td>${escHtml(p.rol==='super_admin'?'Super Admin':'Usuario')}</td>
         <td>${p.activo?'<span class="badge bg">Activo</span>':'<span class="badge br">Inactivo</span>'}</td>
         <td>${p.id!==SESSION?.id
           ? `<button class="btn-sm btn-primary" onclick="toggleUsr('${p.id}',${!p.activo})">${p.activo?'Desactivar':'Activar'}</button>`
@@ -2271,6 +2330,7 @@ async function crearUsuario(){
 
     cM('m-usr');
     rUsuarios();
+    auditLog('CREATE','perfiles',data.user.id,`Nuevo usuario: ${email} | Rol: ${rol}`);
     alert(`✅ Usuario creado.\nSe envió un correo a ${email} para que establezca su contraseña.`);
   } catch(e) { 
     const errEl = document.getElementById('m-usr-err');
