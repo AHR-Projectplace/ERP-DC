@@ -10,7 +10,7 @@
   <title>ERP - Comercializadora</title>
   
   <script>
-    console.log("Cargando ERP Versión: 1.2.8 - Fix: MFA factor existente no verificado");
+    console.log("Cargando ERP Versión: 1.2.9 - UX Cotizaciones: Modal detalle + acciones explícitas");
     (function(){
       if(!sessionStorage.getItem('erp_cache_bust')){
         sessionStorage.setItem('erp_cache_bust','1');
@@ -163,7 +163,7 @@
           <select id="cot-filtro" onchange="rCotizaciones()" style="padding:8px;border:1px solid #ddd;border-radius:5px;font-size:14px;"><option value="">Todos</option><option value="borrador">Borrador</option><option value="enviada">Enviada</option><option value="aceptada">Aceptada</option><option value="vencida">Vencida</option></select>
           <input type="text" id="cot-buscar" placeholder="🔍 Buscar por número o cliente..." oninput="rCotizaciones()" style="padding:8px;border:1px solid #ddd;border-radius:5px;font-size:14px;flex:1;min-width:200px;">
         </div>
-        <table><thead><tr><th>Número</th><th>Cliente</th><th>Total</th><th>Estado</th><th>Acciones</th></tr></thead><tbody id="cot-tbody"></tbody></table>
+        <table><thead><tr><th>Número</th><th>Cliente</th><th>Fecha</th><th>Total</th><th>Estado</th><th></th></tr></thead><tbody id="cot-tbody"></tbody></table>
       </div>
       <div id="vw-inventario" class="vw">
         <h2>Inventario</h2>
@@ -340,6 +340,54 @@
   <div class="form-group"><label>Dirección</label><textarea id="m-cli-direccion" rows="2" placeholder="Calle, Colonia, Ciudad, Estado"></textarea></div>
   <div class="form-group"><label>Lista de Precios Asignada</label><input type="text" id="m-cli-lista" placeholder="Ej. general, VIP, Distribuidor"></div>
   <button class="btn btn-primary" onclick="guardarCliente()">Guardar</button>
+</div></div>
+
+<div id="m-cot-detalle" class="modal"><div class="modal-content" style="max-width:780px;">
+  <div class="modal-header">
+    <div>
+      <h3 id="mcd-numero" style="margin:0;"></h3>
+      <span id="mcd-badge" class="badge" style="font-size:13px;margin-top:4px;display:inline-block;"></span>
+    </div>
+    <button class="modal-close" onclick="cM('m-cot-detalle')">×</button>
+  </div>
+
+  <!-- Info header -->
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:15px;margin-bottom:15px;padding:12px;background:#f9f9f9;border-radius:6px;">
+    <div>
+      <p style="font-size:12px;color:#888;margin-bottom:2px;">CLIENTE</p>
+      <p id="mcd-cliente" style="font-weight:bold;margin:0;"></p>
+      <p id="mcd-cli-rfc" style="font-size:12px;color:#666;margin:2px 0 0;"></p>
+    </div>
+    <div style="text-align:right;">
+      <p style="font-size:12px;color:#888;margin-bottom:2px;">FECHAS</p>
+      <p id="mcd-fecha" style="margin:0;font-size:13px;"></p>
+      <p id="mcd-vigencia" style="font-size:12px;color:#e74c3c;margin:2px 0 0;"></p>
+    </div>
+    <div>
+      <p style="font-size:12px;color:#888;margin-bottom:2px;">VENDEDOR</p>
+      <p id="mcd-vendedor" style="margin:0;font-size:13px;"></p>
+    </div>
+    <div style="text-align:right;">
+      <p style="font-size:12px;color:#888;margin-bottom:2px;">CONDICIONES</p>
+      <p id="mcd-condiciones" style="margin:0;font-size:13px;"></p>
+    </div>
+  </div>
+
+  <!-- Items -->
+  <table style="margin-bottom:10px;">
+    <thead><tr><th>SKU</th><th>Descripción</th><th>Cant.</th><th>Unidad</th><th>Precio</th><th>Desc%</th><th>Importe</th></tr></thead>
+    <tbody id="mcd-items"></tbody>
+  </table>
+
+  <!-- Totales -->
+  <div style="display:flex;justify-content:flex-end;margin-bottom:15px;">
+    <div style="min-width:220px;">
+      <div id="mcd-totales"></div>
+    </div>
+  </div>
+
+  <!-- Acciones por estado -->
+  <div id="mcd-acciones" style="display:flex;gap:8px;flex-wrap:wrap;padding-top:12px;border-top:1px solid #eee;"></div>
 </div></div>
 
 <div id="m-cot" class="modal"><div class="modal-content">
@@ -1972,27 +2020,99 @@ function rCotizaciones(){
     const cli = DB.clientes.find(x=>x.id===c.cliente_id);
     return (c.numero||'').toLowerCase().includes(q) || (cli?.razon_social||'').toLowerCase().includes(q);
   });
-  document.getElementById('cot-tbody').innerHTML=lista.map(c=>{
-    const cli=DB.clientes.find(x=>x.id===c.cliente_id);
-    const badge=c.estado==='aceptada'?'bg':c.estado==='enviada'?'ba':c.estado==='rechazada'?'br':c.estado==='vencida'?'bv':'bgr';
-    const puedeEditar = PERFIL?.rol==='super_admin' || c.created_by===SESSION?.id;
-    const siguienteEstado = c.estado==='borrador'?'enviada':c.estado==='enviada'?'aceptada':c.estado==='vencida'?'borrador':'borrador';
-    const btnCambiar = (puedeEditar && c.estado!=='aceptada')
-      ? `<button class="btn-sm" onclick="cambiarEstadoCot(${c.id},'${siguienteEstado}')">Cambiar</button>` : '';
-    const btnRevertir = (puedeEditar && c.estado==='aceptada')
-      ? `<button class="btn-sm btn-danger" onclick="cambiarEstadoCot(${c.id},'borrador')">Revertir</button>` : '';
-    return `<tr>
-      <td>${escHtml(c.numero)}</td>
-      <td>${escHtml(cli?cli.razon_social:'-')}</td>
+
+  const BADGE = {aceptada:'bg',enviada:'ba',rechazada:'br',vencida:'bv',cancelada:'br'};
+  const LABEL = {
+    borrador:'⚪ Borrador', enviada:'🔵 Enviada', aceptada:'🟢 Aceptada',
+    vencida:'🟡 Vencida', rechazada:'🔴 Rechazada', cancelada:'⛔ Cancelada'
+  };
+
+  document.getElementById('cot-tbody').innerHTML = lista.map(c=>{
+    const cli = DB.clientes.find(x=>x.id===c.cliente_id);
+    const badge = BADGE[c.estado]||'bgr';
+    const label = LABEL[c.estado]||c.estado;
+    return `<tr style="cursor:pointer;" onclick="verDetalleCot(${c.id})">
+      <td><strong>${escHtml(c.numero)}</strong></td>
+      <td>${escHtml(cli?.razon_social||'-')}</td>
+      <td style="font-size:12px;color:#888;">${c.fecha||''}</td>
       <td>${fmt$(c.total)}</td>
-      <td><span class="badge ${badge}">${escHtml(c.estado)}</span></td>
-      <td>
-        <button class="btn-sm btn-primary" onclick="verCot(${c.id})">PDF</button>
-        <button class="btn-sm" onclick="clonarCotizacion(${c.id})" title="Clonar">📋</button>
-        ${btnCambiar}${btnRevertir}
-      </td>
+      <td><span class="badge ${badge}">${label}</span></td>
+      <td><button class="btn-sm btn-primary" onclick="event.stopPropagation();verDetalleCot(${c.id})">Ver →</button></td>
     </tr>`;
-  }).join('')||'<tr><td colspan="5" class="empty">Sin cotizaciones</td></tr>';
+  }).join('')||'<tr><td colspan="6" class="empty">Sin cotizaciones</td></tr>';
+}
+
+function verDetalleCot(id){
+  const c = DB.cotizaciones.find(x=>x.id===id); if(!c) return;
+  const cli = DB.clientes.find(x=>x.id===c.cliente_id);
+  const items = DB.cotizacion_items.filter(x=>x.cotizacion_id===id);
+  const puedeEditar = PERFIL?.rol==='super_admin' || c.created_by===SESSION?.id;
+
+  const BADGE = {aceptada:'bg',enviada:'ba',rechazada:'br',vencida:'bv',cancelada:'br'};
+  const LABEL = {
+    borrador:'⚪ Borrador', enviada:'🔵 Enviada', aceptada:'🟢 Aceptada',
+    vencida:'🟡 Vencida', rechazada:'🔴 Rechazada', cancelada:'⛔ Cancelada'
+  };
+
+  document.getElementById('mcd-numero').textContent = c.numero;
+  const badgeEl = document.getElementById('mcd-badge');
+  badgeEl.textContent = LABEL[c.estado]||c.estado;
+  badgeEl.className = 'badge '+(BADGE[c.estado]||'bgr');
+  document.getElementById('mcd-cliente').textContent = cli?.razon_social||'-';
+  document.getElementById('mcd-cli-rfc').textContent = cli?.rfc ? `RFC: ${cli.rfc}` : '';
+  document.getElementById('mcd-fecha').textContent = `Emisión: ${c.fecha||'-'}`;
+  document.getElementById('mcd-vigencia').textContent = c.vigencia ? `Vigente hasta: ${c.vigencia}` : '';
+  document.getElementById('mcd-vendedor').textContent = c.vendedor_nombre || '-';
+  document.getElementById('mcd-condiciones').textContent = c.condiciones_pago || '-';
+
+  // Items
+  document.getElementById('mcd-items').innerHTML = items.map(i=>{
+    const prod = DB.productos.find(p=>p.id==i.producto_id);
+    return `<tr>
+      <td><code style="font-size:11px;background:#eee;padding:2px 5px;border-radius:3px;">${escHtml(prod?.sku||'-')}</code></td>
+      <td>${escHtml(i.descripcion||prod?.nombre||'-')}</td>
+      <td style="text-align:center;">${i.cantidad}</td>
+      <td style="text-align:center;">${escHtml(prod?.unidad_medida||'')}</td>
+      <td style="text-align:right;">${fmt$(i.precio_unitario)}</td>
+      <td style="text-align:center;">${i.descuento_pct||0}%</td>
+      <td style="text-align:right;font-weight:bold;">${fmt$(i.importe||0)}</td>
+    </tr>`;
+  }).join('')||'<tr><td colspan="7" class="empty">Sin líneas</td></tr>';
+
+  // Totales
+  const descGlobalPct = Number(c.descuento_global_pct||0);
+  const descMonto = Number(c.subtotal||0)*descGlobalPct/100;
+  document.getElementById('mcd-totales').innerHTML = `
+    <div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #eee;font-size:13px;"><span>Subtotal</span><span>${fmt$(c.subtotal)}</span></div>
+    ${descGlobalPct>0?`<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #eee;font-size:13px;color:#e74c3c;"><span>Descuento (${descGlobalPct}%)</span><span>-${fmt$(descMonto)}</span></div>`:''}
+    <div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #eee;font-size:13px;"><span>IVA (${c.iva_porcentaje||16}%)</span><span>${fmt$(c.iva)}</span></div>
+    <div style="display:flex;justify-content:space-between;padding:6px 0;font-size:15px;font-weight:bold;color:#667eea;"><span>TOTAL</span><span>${fmt$(c.total)}</span></div>`;
+
+  // Botones de acción según estado
+  const btns = [];
+  btns.push(`<button class="btn btn-primary" style="width:auto;" onclick="verCot(${id})">📄 Descargar PDF</button>`);
+  btns.push(`<button class="btn" style="width:auto;background:#2980b9;color:white;" onclick="clonarCotizacion(${id})">📋 Clonar</button>`);
+
+  if(puedeEditar){
+    if(c.estado==='borrador'){
+      btns.push(`<button class="btn" style="width:auto;background:#667eea;color:white;" onclick="cambiarEstadoCot(${id},'enviada');cM('m-cot-detalle')">📤 Marcar como Enviada</button>`);
+      btns.push(`<button class="btn" style="width:auto;background:#e74c3c;color:white;" onclick="cambiarEstadoCot(${id},'cancelada');cM('m-cot-detalle')">🗑️ Cancelar</button>`);
+    }
+    if(c.estado==='enviada'){
+      btns.push(`<button class="btn" style="width:auto;background:#27ae60;color:white;" onclick="cambiarEstadoCot(${id},'aceptada');cM('m-cot-detalle')">✅ Aceptar</button>`);
+      btns.push(`<button class="btn" style="width:auto;background:#e74c3c;color:white;" onclick="cambiarEstadoCot(${id},'rechazada');cM('m-cot-detalle')">❌ Rechazar</button>`);
+      btns.push(`<button class="btn" style="width:auto;background:#888;color:white;" onclick="cambiarEstadoCot(${id},'borrador');cM('m-cot-detalle')">↩️ Regresar a borrador</button>`);
+    }
+    if(c.estado==='aceptada'){
+      btns.push(`<button class="btn" style="width:auto;background:#e74c3c;color:white;" onclick="cambiarEstadoCot(${id},'borrador');cM('m-cot-detalle')">↩️ Revertir</button>`);
+    }
+    if(c.estado==='vencida'){
+      btns.push(`<button class="btn" style="width:auto;background:#f39c12;color:white;" onclick="cambiarEstadoCot(${id},'borrador');cM('m-cot-detalle')">♻️ Reactivar</button>`);
+    }
+  }
+
+  document.getElementById('mcd-acciones').innerHTML = btns.join('');
+  oM('m-cot-detalle');
 }
 
 async function clonarCotizacion(id){
