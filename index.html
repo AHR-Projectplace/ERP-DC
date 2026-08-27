@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' cdn.jsdelivr.net cdnjs.cloudflare.com js.hcaptcha.com hcaptcha.com 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' *.supabase.co *.hcaptcha.com; img-src 'self' data: blob: *.hcaptcha.com; font-src 'self' data:; frame-src hcaptcha.com *.hcaptcha.com; object-src 'none';">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' cdn.jsdelivr.net cdnjs.cloudflare.com js.hcaptcha.com hcaptcha.com 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' *.supabase.co *.hcaptcha.com cdnjs.cloudflare.com cdn.jsdelivr.net; img-src 'self' data: blob: *.hcaptcha.com; font-src 'self' data:; frame-src hcaptcha.com *.hcaptcha.com; object-src 'none';">
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
@@ -10,7 +10,7 @@
   <title>ERP - Comercializadora</title>
   
   <script>
-    console.log("Cargando ERP Versión: 1.2.3 - Seguridad: hCaptcha en Login");
+    console.log("Cargando ERP Versión: 1.2.4 - Fix CSP + hCaptcha");
     (function(){
       if(!sessionStorage.getItem('erp_cache_bust')){
         sessionStorage.setItem('erp_cache_bust','1');
