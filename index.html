@@ -580,7 +580,14 @@ async function doLogin(){
       email, password: pass,
       options: { captchaToken: hcaptchaToken }
     });
-    if(error){ errEl.textContent='Error: '+error.message; errEl.classList.add('show'); hcaptcha.reset(); hcaptchaToken=null; document.getElementById('btn-login').disabled=true; return; }
+    if(error){ 
+      errEl.textContent='Error: '+error.message; 
+      errEl.classList.add('show'); 
+      try{ hcaptcha.reset(); }catch(e2){}
+      hcaptchaToken=null; 
+      document.getElementById('btn-login').disabled=true; 
+      return; 
+    }
     SESSION = data.user;
     const {data: perfil, error: ep} = await SB.from('perfiles').select('*').eq('id', SESSION.id).single();
     if(ep || !perfil){ await SB.auth.signOut(); errEl.textContent='Sin perfil asignado. Contacta al administrador.'; errEl.classList.add('show'); return; }
