@@ -10,7 +10,7 @@
   <title>ERP - Comercializadora</title>
   
   <script>
-    console.log("Cargando ERP Versión: 1.2.9 - UX Cotizaciones: Modal detalle + acciones explícitas");
+    console.log("Cargando ERP Versión: 1.3.0 - MVP E1: Soft Delete + Visibilidad");
     (function(){
       if(!sessionStorage.getItem('erp_cache_bust')){
         sessionStorage.setItem('erp_cache_bust','1');
@@ -144,6 +144,7 @@
           <button class="btn" id="btn-import-prod" style="width:auto;display:none;background:#27ae60;color:white;" onclick="openImportModal()">📥 Importar Excel</button>
           <button class="btn" id="btn-plantilla-prod" style="width:auto;display:none;background:#2980b9;color:white;" onclick="descargarPlantilla()">📋 Descargar Plantilla</button>
           <button class="btn" id="btn-cats-prod" style="width:auto;display:none;background:#8e44ad;color:white;" onclick="openCatsModal()">📂 Categorías</button>
+          <button class="btn" id="btn-toggle-inactivos-prod" style="width:auto;display:none;background:#888;color:white;" onclick="toggleInactivos('prod')" title="Mostrar/ocultar inactivos">👁 Inactivos</button>
           <input type="text" id="prod-buscar" placeholder="🔍 Buscar por SKU o nombre..." oninput="rProductos()" style="padding:8px;border:1px solid #ddd;border-radius:5px;font-size:14px;flex:1;min-width:200px;">
         </div>
         <table><thead><tr><th>SKU</th><th>Nombre / Variante</th><th>Unidad</th><th>Precio Base</th><th>Stock</th><th>Acciones</th></tr></thead><tbody id="prod-tbody"></tbody></table>
@@ -152,6 +153,7 @@
         <h2>Clientes</h2>
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:5px;">
           <button class="btn btn-primary" style="width:auto;" onclick="openCliModal()">+ Nuevo Cliente</button>
+          <button class="btn" id="btn-toggle-inactivos-cli" style="width:auto;display:none;background:#888;color:white;" onclick="toggleInactivos('cli')" title="Mostrar/ocultar inactivos">👁 Inactivos</button>
           <input type="text" id="cli-buscar" placeholder="🔍 Buscar por razón social o RFC..." oninput="rClientes()" style="padding:8px;border:1px solid #ddd;border-radius:5px;font-size:14px;flex:1;min-width:200px;">
         </div>
         <table><thead><tr><th>Razón Social</th><th>RFC</th><th>Lista Precios</th><th>Acciones</th></tr></thead><tbody id="cli-tbody"></tbody></table>
@@ -193,6 +195,7 @@
         <h2>Proveedores</h2>
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:5px;">
           <button class="btn btn-primary" style="width:auto;" onclick="openProvModal()">+ Nuevo Proveedor</button>
+          <button class="btn" id="btn-toggle-inactivos-prov" style="width:auto;background:#888;color:white;" onclick="toggleInactivos('prov')" title="Mostrar/ocultar inactivos">👁 Inactivos</button>
           <input type="text" id="prov-buscar" placeholder="🔍 Buscar por nombre o contacto..." oninput="rProveedores()" style="padding:8px;border:1px solid #ddd;border-radius:5px;font-size:14px;flex:1;min-width:200px;">
         </div>
         <table><thead><tr><th>Nombre</th><th>Contacto</th><th>Teléfono</th><th>Email</th><th>Productos</th><th>Acciones</th></tr></thead><tbody id="prov-tbody"></tbody></table>
@@ -408,7 +411,18 @@
   <button class="btn btn-primary" onclick="guardarMovimiento()">Guardar</button>
 </div></div>
 
-<!-- MFA VERIFY MODAL -->
+<div id="m-warning-delete" class="modal"><div class="modal-content" style="max-width:420px;">
+  <div class="modal-header"><h3>⚠️ Confirmar eliminación</h3><button class="modal-close" onclick="cM('m-warning-delete')">×</button></div>
+  <p id="mwd-msg" style="color:#555;margin-bottom:20px;"></p>
+  <div style="background:#fff5f5;border:1px solid #fcc;border-radius:6px;padding:12px;margin-bottom:20px;">
+    <p style="color:#c33;font-size:13px;margin:0;">⚠️ El registro <strong>no se eliminará</strong> de la base de datos — quedará marcado como inactivo y podrás recuperarlo activando "Mostrar inactivos".</p>
+  </div>
+  <div style="display:flex;gap:10px;">
+    <button id="mwd-btn-confirm" class="btn" style="background:#e74c3c;color:white;width:auto;" onclick="confirmarDesactivar()">Sí, desactivar</button>
+    <button class="btn" style="width:auto;background:#888;color:white;" onclick="cM('m-warning-delete')">Cancelar</button>
+  </div>
+</div></div>
+
 <div id="m-mfa-verify" class="modal"><div class="modal-content" style="max-width:380px;">
   <div class="modal-header"><h3>🔐 Verificación en 2 pasos</h3></div>
   <p style="color:#555;font-size:14px;margin-bottom:15px;">Ingresa el código de 6 dígitos de tu aplicación autenticadora.</p>
@@ -864,6 +878,8 @@ async function initApp(){
   document.getElementById('btn-import-prod').style.display   = esSA ? '' : 'none';
   document.getElementById('btn-plantilla-prod').style.display = esSA ? '' : 'none';
   document.getElementById('btn-cats-prod').style.display = esSA ? '' : 'none';
+  document.getElementById('btn-toggle-inactivos-prod').style.display = esSA ? '' : 'none';
+  document.getElementById('btn-toggle-inactivos-cli').style.display = esSA ? '' : 'none';
   document.querySelectorAll('.scr').forEach(s => s.classList.remove('active'));
   document.getElementById('app').classList.add('active');
   await loadAll();
@@ -1061,23 +1077,28 @@ async function verificarVencimientos(){
 // PRODUCTOS
 function rProductos(){
   const q = (document.getElementById('prod-buscar')?.value||'').toLowerCase();
-  const lista = q ? DB.productos.filter(p =>
+  let lista = mostrarInactivos.prod ? DB.productos : DB.productos.filter(p => p.activo !== false);
+  if(q) lista = lista.filter(p =>
     (p.sku||'').toLowerCase().includes(q) || (p.nombre||'').toLowerCase().includes(q)
-  ) : DB.productos;
+  );
+  const esSA = PERFIL?.rol === 'super_admin';
   document.getElementById('prod-tbody').innerHTML=lista.map(p=>{
-    const bajo = Number(p.stock_actual) <= Number(p.stock_minimo||0);
-    const stockCell = bajo
-      ? `<span style="color:#e74c3c;font-weight:bold;">⚠️ ${p.stock_actual}</span>`
-      : p.stock_actual;
-    return `<tr style="${bajo?'background:#fff5f5;':''}">
+    const inactivo = p.activo === false;
+    const bajo = !inactivo && Number(p.stock_actual) <= Number(p.stock_minimo||0);
+    const stockCell = bajo ? `<span style="color:#e74c3c;font-weight:bold;">⚠️ ${p.stock_actual}</span>` : p.stock_actual;
+    return `<tr style="${inactivo?'opacity:0.5;background:#f5f5f5;':bajo?'background:#fff5f5;':''}">
       <td><code style="font-weight:bold;background:#eaeaea;padding:2px 6px;border-radius:3px;">${escHtml(p.sku||'-')}</code></td>
-      <td>${escHtml(p.nombre)}</td>
+      <td>${escHtml(p.nombre)}${inactivo?' <span class="badge br" style="font-size:10px;">inactivo</span>':''}</td>
       <td><span class="badge bgr">${escHtml(p.unidad_medida||'pza')}</span></td>
       <td>${fmt$(p.precio_venta)}</td>
-      <td>${stockCell}</td>
-      <td><button class="btn-sm btn-primary" onclick="editProd(${p.id})">Editar</button></td>
+      <td>${inactivo?'-':stockCell}</td>
+      <td>
+        <button class="btn-sm btn-primary" onclick="editProd(${p.id})">Editar</button>
+        ${esSA && !inactivo ? `<button class="btn-sm btn-danger" onclick="abrirWarningDelete('productos',${p.id},'${p.nombre.replace(/'/g,"\\'")}')">Desactivar</button>` : ''}
+        ${esSA && inactivo ? `<button class="btn-sm" style="background:#27ae60;color:white;" onclick="reactivarRegistro('productos',${p.id})">Reactivar</button>` : ''}
+      </td>
     </tr>`;
-  }).join('')||'<tr><td colspan="5" class="empty">Sin resultados</td></tr>';
+  }).join('')||'<tr><td colspan="6" class="empty">Sin resultados</td></tr>';
 }
 
 // ── DESCUENTOS POR VOLUMEN ────────────────────────────────────────────────────
@@ -1118,7 +1139,58 @@ function obtenerDescuentoVolumen(prod_id, cantidad){
 
 
 
-// ── MÓDULO ÓRDENES DE COMPRA ─────────────────────────────────────────────────
+// ── SOFT DELETE + VISIBILIDAD ─────────────────────────────────────────────────
+
+let mostrarInactivos = { prod: false, cli: false, prov: false };
+let pendienteDesactivar = { tabla: '', id: null };
+
+function toggleInactivos(modulo){
+  mostrarInactivos[modulo] = !mostrarInactivos[modulo];
+  const btn = document.getElementById(`btn-toggle-inactivos-${modulo}`);
+  if(btn){
+    btn.style.background = mostrarInactivos[modulo] ? '#667eea' : '#888';
+    btn.textContent = mostrarInactivos[modulo] ? '👁 Ocultar inactivos' : '👁 Inactivos';
+  }
+  if(modulo==='prod') rProductos();
+  if(modulo==='cli') rClientes();
+  if(modulo==='prov') rProveedores();
+}
+
+function abrirWarningDelete(tabla, id, nombre){
+  if(PERFIL?.rol !== 'super_admin') return;
+  pendienteDesactivar = { tabla, id };
+  document.getElementById('mwd-msg').innerHTML = `¿Desactivar <strong>${escHtml(nombre)}</strong>?`;
+  oM('m-warning-delete');
+}
+
+async function confirmarDesactivar(){
+  try {
+    const {tabla, id} = pendienteDesactivar;
+    if(!tabla||!id) return;
+    const {error} = await SB.from(tabla).update({activo: false}).eq('id', id);
+    if(error) throw error;
+    auditLog('DELETE', tabla, id, `Desactivado por super_admin`);
+    cM('m-warning-delete');
+    await loadAll();
+    if(tabla==='productos') rProductos();
+    if(tabla==='clientes') rClientes();
+    if(tabla==='proveedores') rProveedores();
+  } catch(e){ alert('Error al desactivar: '+e.message); }
+}
+
+async function reactivarRegistro(tabla, id){
+  try {
+    const {error} = await SB.from(tabla).update({activo: true}).eq('id', id);
+    if(error) throw error;
+    auditLog('UPDATE', tabla, id, 'Reactivado por super_admin');
+    await loadAll();
+    if(tabla==='productos') rProductos();
+    if(tabla==='clientes') rClientes();
+    if(tabla==='proveedores') rProveedores();
+  } catch(e){ alert('Error al reactivar: '+e.message); }
+}
+
+
 
 let ocLineas = [];
 let currentOCId = null;
@@ -1314,20 +1386,25 @@ async function verOC(id){
 
 function rProveedores(){
   const q = (document.getElementById('prov-buscar')?.value||'').toLowerCase();
-  const lista = q ? DB.proveedores.filter(p =>
-    (p.nombre||'').toLowerCase().includes(q) ||
-    (p.contacto||'').toLowerCase().includes(q)
-  ) : DB.proveedores;
-
+  let lista = mostrarInactivos.prov ? DB.proveedores : DB.proveedores.filter(p => p.activo !== false);
+  if(q) lista = lista.filter(p =>
+    (p.nombre||'').toLowerCase().includes(q) || (p.contacto||'').toLowerCase().includes(q)
+  );
+  const esSA = PERFIL?.rol === 'super_admin';
   document.getElementById('prov-tbody').innerHTML = lista.map(p => {
+    const inactivo = p.activo === false;
     const numProds = DB.producto_proveedores.filter(pp => pp.proveedor_id === p.id).length;
-    return `<tr>
-      <td><strong>${escHtml(p.nombre)}</strong></td>
+    return `<tr style="${inactivo?'opacity:0.5;background:#f5f5f5;':''}">
+      <td><strong>${escHtml(p.nombre)}</strong>${inactivo?' <span class="badge br" style="font-size:10px;">inactivo</span>':''}</td>
       <td>${escHtml(p.contacto||'-')}</td>
       <td>${escHtml(p.telefono||'-')}</td>
       <td>${escHtml(p.email||'-')}</td>
       <td><span class="badge ba">${numProds} producto${numProds!==1?'s':''}</span></td>
-      <td><button class="btn-sm btn-primary" onclick="editProv('${p.id}')">Editar</button></td>
+      <td>
+        <button class="btn-sm btn-primary" onclick="editProv('${p.id}')">Editar</button>
+        ${esSA && !inactivo ? `<button class="btn-sm btn-danger" onclick="abrirWarningDelete('proveedores','${p.id}','${p.nombre.replace(/'/g,"\\'")}')">Desactivar</button>` : ''}
+        ${esSA && inactivo ? `<button class="btn-sm" style="background:#27ae60;color:white;" onclick="reactivarRegistro('proveedores','${p.id}')">Reactivar</button>` : ''}
+      </td>
     </tr>`;
   }).join('') || '<tr><td colspan="6" class="empty">Sin proveedores registrados</td></tr>';
 }
@@ -1610,7 +1687,7 @@ function openProdModal(id){
   // Poblar dropdown de clientes para precios
   const selCli = document.getElementById('m-prod-price-cli');
   selCli.innerHTML = '<option value="">— Selecciona cliente —</option>' +
-    DB.clientes.map(c => `<option value="${c.id}">${c.razon_social}</option>`).join('');
+    DB.clientes.filter(c=>c.activo!==false).map(c => `<option value="${c.id}">${c.razon_social}</option>`).join('');
 
   currentProdProveedores = [];
   currentProdDvol = [];
@@ -1955,12 +2032,24 @@ async function confirmarImport(){
 
 function rClientes(){
   const q = (document.getElementById('cli-buscar')?.value||'').toLowerCase();
-  const lista = q ? DB.clientes.filter(c =>
+  let lista = mostrarInactivos.cli ? DB.clientes : DB.clientes.filter(c => c.activo !== false);
+  if(q) lista = lista.filter(c =>
     (c.razon_social||'').toLowerCase().includes(q) || (c.rfc||'').toLowerCase().includes(q)
-  ) : DB.clientes;
-  document.getElementById('cli-tbody').innerHTML=lista.map(c=>
-    `<tr><td>${escHtml(c.razon_social)}</td><td>${escHtml(c.rfc||'-')}</td><td><span class="badge ba">${escHtml(c.lista_precios||'general')}</span></td><td><button class="btn-sm btn-primary" onclick="editCli(${c.id})">Editar</button></td></tr>`
-  ).join('')||'<tr><td colspan="4" class="empty">Sin resultados</td></tr>';
+  );
+  const esSA = PERFIL?.rol === 'super_admin';
+  document.getElementById('cli-tbody').innerHTML=lista.map(c=>{
+    const inactivo = c.activo === false;
+    return `<tr style="${inactivo?'opacity:0.5;background:#f5f5f5;':''}">
+      <td>${escHtml(c.razon_social)}${inactivo?' <span class="badge br" style="font-size:10px;">inactivo</span>':''}</td>
+      <td>${escHtml(c.rfc||'-')}</td>
+      <td><span class="badge ba">${escHtml(c.lista_precios||'general')}</span></td>
+      <td>
+        <button class="btn-sm btn-primary" onclick="editCli(${c.id})">Editar</button>
+        ${esSA && !inactivo ? `<button class="btn-sm btn-danger" onclick="abrirWarningDelete('clientes',${c.id},'${c.razon_social.replace(/'/g,"\\'")}')">Desactivar</button>` : ''}
+        ${esSA && inactivo ? `<button class="btn-sm" style="background:#27ae60;color:white;" onclick="reactivarRegistro('clientes',${c.id})">Reactivar</button>` : ''}
+      </td>
+    </tr>`;
+  }).join('')||'<tr><td colspan="4" class="empty">Sin resultados</td></tr>';
 }
 
 function openCliModal(id){
@@ -2155,7 +2244,7 @@ function openCotModal(){
   cotLineas=[];
   const sel=document.getElementById('m-cot-cliente');
   sel.innerHTML='<option value="">Selecciona...</option>';
-  DB.clientes.forEach(c=>sel.innerHTML+=`<option value="${c.id}">${c.razon_social}</option>`);
+  DB.clientes.filter(c=>c.activo!==false).forEach(c=>sel.innerHTML+=`<option value="${c.id}">${c.razon_social}</option>`);
   document.getElementById('m-cot-items').innerHTML='';
   document.getElementById('m-cot-iva').value='16';
   document.getElementById('cot-total').textContent='$0.00';
