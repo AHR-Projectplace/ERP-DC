@@ -10,7 +10,7 @@
   <title>ERP - Comercializadora</title>
   
   <script>
-    console.log("Cargando ERP Versión: 1.3.4 - PDF v3: Layout robusto anti-empalme");
+    console.log("Cargando ERP Versión: 1.3.5 - Fix PDF OC: layout + descripción limpia");
     (function(){
       if(!sessionStorage.getItem('erp_cache_bust')){
         sessionStorage.setItem('erp_cache_bust','1');
@@ -1389,46 +1389,122 @@ async function verOC(id){
     const items=DB.oc_items.filter(x=>x.oc_id===id);
     const prov=DB.proveedores.find(x=>x.id===o.proveedor_id);
     const doc=new jspdf.jsPDF({unit:'mm',format:'letter'});
+
     const empNombre=CONFIG_ERP.empresa_nombre||'MI EMPRESA S.A. DE C.V.';
-    const empRfc=CONFIG_ERP.empresa_rfc||'',empDir=CONFIG_ERP.empresa_direccion||'',empTel=CONFIG_ERP.empresa_telefono||'',empEmail=CONFIG_ERP.empresa_email||'',logo=CONFIG_ERP.logo_base64;
-    const M=12,PAGE_W=216,COLOR_HEAD=[10,15,44],COLOR_GRIS=[80,80,80],COLOR_LINE=[200,200,200];
-    let y=M;
-    if(logo){try{doc.addImage(logo,'PNG',M,y,55,18);}catch(e){}}
-    doc.setFont('helvetica','bold');doc.setFontSize(13);doc.setTextColor(...COLOR_GRIS);
-    doc.text(empNombre,logo?M+38:M,y+6);doc.setFont('helvetica','normal');doc.setFontSize(8);
-    if(empRfc) doc.text(`RFC: ${empRfc}`,logo?M+38:M,y+11);
-    let yR=y+4;
-    if(empDir){const d=doc.splitTextToSize(empDir,80);doc.text(d,PAGE_W-M,yR,{align:'right'});yR+=d.length*3.5;}
-    if(empEmail){doc.text(empEmail,PAGE_W-M,yR,{align:'right'});yR+=4;}
-    if(empTel) doc.text(empTel,PAGE_W-M,yR,{align:'right'});
-    y=Math.max(y+25,yR+4);
-    doc.setFillColor(...COLOR_HEAD);doc.rect(M,y,PAGE_W-M*2,8,'F');
-    doc.setTextColor(255);doc.setFont('helvetica','bold');doc.setFontSize(11);
-    doc.text('ORDEN DE COMPRA',PAGE_W/2,y+5.5,{align:'center'});y+=12;
-    const col1X=M,col2X=PAGE_W/2+4,boxH=24;
-    doc.setDrawColor(...COLOR_LINE);doc.rect(col1X,y,(PAGE_W/2)-M-2,boxH);doc.rect(col2X,y,(PAGE_W/2)-M-2,boxH);
-    doc.setFillColor(240,240,240);doc.rect(col1X,y,(PAGE_W/2)-M-2,5,'F');doc.rect(col2X,y,(PAGE_W/2)-M-2,5,'F');
-    doc.setFont('helvetica','bold');doc.setFontSize(8);doc.setTextColor(...COLOR_GRIS);
-    doc.text('DATOS DEL PROVEEDOR',col1X+2,y+3.5);doc.text('DATOS DE LA OC',col2X+2,y+3.5);
-    doc.setFont('helvetica','normal');
-    let yc=y+9;
-    [['Proveedor:',prov?.nombre||''],['Contacto:',prov?.contacto||''],['Teléfono:',prov?.telefono||''],['Email:',prov?.email||'']].forEach(([k,v])=>{doc.setFont('helvetica','bold');doc.text(k,col1X+2,yc);doc.setFont('helvetica','normal');doc.text(v,col1X+22,yc);yc+=5;});
-    let yq=y+9;
-    [['No. OC:',o.numero||''],['Fecha:',o.fecha||''],['Entrega:',o.fecha_entrega||'-'],['Condiciones:',o.condiciones_pago||'']].forEach(([k,v])=>{doc.setFont('helvetica','bold');doc.text(k,col2X+2,yq);doc.setFont('helvetica','normal');doc.text(String(v),col2X+28,yq);yq+=5;});
-    y+=boxH+5;
-    const rows=items.map((i,idx)=>{const prod=DB.productos.find(p=>p.id==i.producto_id);return[idx+1,prod?.sku||'',i.descripcion||'',i.cantidad,prod?.unidad_medida||'',fmt$(i.precio_unitario),fmt$(i.importe||0)];});
-    doc.autoTable({head:[['#','CLAVE','DESCRIPCIÓN','CANT.','UNIDAD','P. UNIT.','IMPORTE']],body:rows,startY:y,theme:'grid',styles:{fontSize:7.5,cellPadding:1.8,textColor:[50,50,50]},headStyles:{fillColor:COLOR_HEAD,textColor:255,fontStyle:'bold',fontSize:7.5},columnStyles:{0:{cellWidth:8,halign:'center'},1:{cellWidth:22,halign:'center'},2:{cellWidth:'auto'},3:{cellWidth:14,halign:'center'},4:{cellWidth:16,halign:'center'},5:{cellWidth:24,halign:'right'},6:{cellWidth:24,halign:'right'}},margin:{left:M,right:M}});
-    let fY=doc.lastAutoTable.finalY+4;
-    const tBX=PAGE_W-M-60,tBW=60,lH=5.5;
-    const pT=(label,val,bold=false,bg=null)=>{if(bg){doc.setFillColor(...bg);doc.rect(tBX,fY-3.5,tBW,lH,'F');doc.setTextColor(255);}else doc.setTextColor(...COLOR_GRIS);doc.setFont('helvetica',bold?'bold':'normal');doc.setFontSize(9);doc.text(label,tBX+2,fY);doc.text(val,tBX+tBW-2,fY,{align:'right'});fY+=lH;};
-    pT('Subtotal:',fmt$(o.subtotal)+' MXN');pT(`IVA (${o.iva_porcentaje||16}%):`,fmt$(o.iva)+' MXN');pT('TOTAL:',fmt$(o.total)+' MXN',true,COLOR_HEAD);
-    fY+=4; doc.setFont('helvetica','italic');doc.setFontSize(8);doc.setTextColor(80,80,80);
+    const empRfc=CONFIG_ERP.empresa_rfc||'';
+    const empDir=CONFIG_ERP.empresa_direccion||'';
+    const empTel=CONFIG_ERP.empresa_telefono||'';
+    const empEmail=CONFIG_ERP.empresa_email||'';
+    const empWeb=CONFIG_ERP.empresa_web||'';
+    const logo=CONFIG_ERP.logo_base64;
+
+    const M=12, PAGE_W=216, PAGE_H=279, FOOTER_H=10;
+    const COLOR_HEAD=[10,15,44], COLOR_GRIS=[80,80,80], COLOR_LINE=[200,200,200];
+    const SAFE_BOTTOM = PAGE_H - FOOTER_H - M;
+    let finalY = M;
+
+    const checkPage = (needed=10) => {
+      if(finalY + needed > SAFE_BOTTOM){ doc.addPage(); finalY = M; return true; }
+      return false;
+    };
+
+    // Header: logo izquierda, contacto derecha
+    const LOGO_H=20, LOGO_W=58;
+    if(logo){ try{ doc.addImage(logo,'PNG',M,finalY,LOGO_W,LOGO_H); }catch(e){} }
+
+    doc.setFontSize(8); doc.setTextColor(...COLOR_GRIS);
+    let yR = finalY+3;
+    const empLines = doc.splitTextToSize(empNombre,85);
+    doc.setFont('helvetica','bold'); doc.setFontSize(9);
+    doc.text(empLines,PAGE_W-M,yR,{align:'right'}); yR+=empLines.length*4;
+    doc.setFont('helvetica','normal'); doc.setFontSize(7.5);
+    if(empRfc){ doc.text(`RFC: ${empRfc}`,PAGE_W-M,yR,{align:'right'}); yR+=3.5; }
+    if(empDir){ const dl=doc.splitTextToSize(empDir,85); doc.text(dl,PAGE_W-M,yR,{align:'right'}); yR+=dl.length*3.5; }
+    if(empEmail){ doc.text(empEmail,PAGE_W-M,yR,{align:'right'}); yR+=3.5; }
+    if(empTel){ doc.text(empTel,PAGE_W-M,yR,{align:'right'}); yR+=3.5; }
+    if(empWeb){ doc.text(empWeb,PAGE_W-M,yR,{align:'right'}); yR+=3.5; }
+
+    if(logo){
+      doc.setFont('helvetica','bold'); doc.setFontSize(9); doc.setTextColor(...COLOR_GRIS);
+      doc.text(empNombre, M, finalY+LOGO_H+5);
+      doc.setFont('helvetica','normal'); doc.setFontSize(7.5);
+      if(empRfc) doc.text(`RFC: ${empRfc}`, M, finalY+LOGO_H+9);
+    }
+
+    finalY = Math.max(finalY+LOGO_H+(logo?12:0), yR)+4;
+
+    // Banda OC
+    doc.setFillColor(...COLOR_HEAD); doc.rect(M,finalY,PAGE_W-M*2,8,'F');
+    doc.setTextColor(255); doc.setFont('helvetica','bold'); doc.setFontSize(11);
+    doc.text('ORDEN DE COMPRA',PAGE_W/2,finalY+5.5,{align:'center'});
+    finalY+=11;
+
+    // Cajas proveedor / OC
+    const col1X=M, col2X=PAGE_W/2+3, colW=PAGE_W/2-M-3;
+    const provDatos=[['Proveedor:',prov?.nombre||''],['Contacto:',prov?.contacto||''],['Teléfono:',prov?.telefono||''],['Email:',prov?.email||'']].filter(([,v])=>v);
+    const ocDatos=[['No. OC:',o.numero||''],['Fecha:',o.fecha||''],['Entrega:',o.fecha_entrega||'-'],['Condiciones:',o.condiciones_pago||'']].filter(([,v])=>v&&v!=='-');
+    const rowsCount=Math.max(provDatos.length,ocDatos.length);
+    const boxH=6+rowsCount*5;
+
+    doc.setDrawColor(...COLOR_LINE);
+    doc.rect(col1X,finalY,colW,boxH); doc.rect(col2X,finalY,colW,boxH);
+    doc.setFillColor(235,237,242);
+    doc.rect(col1X,finalY,colW,5.5,'F'); doc.rect(col2X,finalY,colW,5.5,'F');
+    doc.setFont('helvetica','bold'); doc.setFontSize(7.5); doc.setTextColor(...COLOR_HEAD);
+    doc.text('DATOS DEL PROVEEDOR',col1X+2,finalY+3.8);
+    doc.text('DATOS DE LA OC',col2X+2,finalY+3.8);
+
+    doc.setTextColor(...COLOR_GRIS); doc.setFontSize(7.5);
+    let yc=finalY+9;
+    provDatos.forEach(([k,v])=>{ doc.setFont('helvetica','bold'); doc.text(k,col1X+2,yc); doc.setFont('helvetica','normal'); const vl=doc.splitTextToSize(String(v),colW-24); doc.text(vl,col1X+22,yc); yc+=Math.max(5,vl.length*4); });
+    let yq=finalY+9;
+    ocDatos.forEach(([k,v])=>{ doc.setFont('helvetica','bold'); doc.text(k,col2X+2,yq); doc.setFont('helvetica','normal'); doc.text(String(v),col2X+25,yq); yq+=5; });
+    finalY+=boxH+4;
+
+    // Tabla items (limpiar descripción)
+    const rows=items.filter(i=>i.producto_id||(i.descripcion&&i.precio_unitario>0)).map((i,idx)=>{
+      const prod=DB.productos.find(p=>p.id==i.producto_id);
+      let desc=(i.descripcion||prod?.nombre||'').replace(/^\[[^\]]+\]\s*/,'').trim();
+      return[idx+1,prod?.sku||'',desc,i.cantidad,prod?.unidad_medida||'',fmt$(i.precio_unitario),fmt$(i.importe||0)];
+    });
+
+    doc.autoTable({
+      head:[['#','CLAVE','DESCRIPCIÓN','CANT.','UNIDAD','P. UNIT.','IMPORTE']],
+      body:rows, startY:finalY, theme:'grid',
+      styles:{fontSize:7.5,cellPadding:1.8,textColor:[50,50,50],overflow:'linebreak'},
+      headStyles:{fillColor:COLOR_HEAD,textColor:255,fontStyle:'bold',fontSize:7.5},
+      alternateRowStyles:{fillColor:[248,248,252]},
+      columnStyles:{0:{cellWidth:7,halign:'center'},1:{cellWidth:20,halign:'center'},2:{cellWidth:'auto'},3:{cellWidth:13,halign:'center'},4:{cellWidth:14,halign:'center'},5:{cellWidth:24,halign:'right'},6:{cellWidth:24,halign:'right'}},
+      margin:{left:M,right:M}
+    });
+    finalY=doc.lastAutoTable.finalY+5;
+
+    // Totales
+    const tBX=PAGE_W-M-72, tBW=72, lH=5.5;
+    checkPage(30);
+    const pT=(label,val,bold=false,bg=null)=>{ if(bg){doc.setFillColor(...bg);doc.rect(tBX,finalY-4,tBW,lH,'F');doc.setTextColor(255);}else doc.setTextColor(...COLOR_GRIS); doc.setFont('helvetica',bold?'bold':'normal');doc.setFontSize(8.5);doc.text(label,tBX+2,finalY);doc.text(val,tBX+tBW-2,finalY,{align:'right'});finalY+=lH; };
+    pT('Subtotal:',fmt$(o.subtotal)+' MXN');
+    pT(`IVA (${o.iva_porcentaje||16}%):`,fmt$(o.iva)+' MXN');
+    pT('TOTAL:',fmt$(o.total)+' MXN',true,COLOR_HEAD);
+
+    finalY+=3; checkPage(10);
+    doc.setFont('helvetica','italic');doc.setFontSize(7.5);doc.setTextColor(...COLOR_GRIS);
     const letrasOC=doc.splitTextToSize(`Son: ${numeroALetras(o.total)}`,PAGE_W-M*2);
-    doc.text(letrasOC,M,fY); fY+=letrasOC.length*4+3;
-    if(o.notas){fY+=6;doc.setFont('helvetica','italic');doc.setFontSize(8);doc.setTextColor(...COLOR_GRIS);doc.text(`Notas: ${o.notas}`,M,fY);}
-    doc.setFontSize(7);doc.setTextColor(150);doc.text('Documento generado por ERP DelCav Industrial Supply',PAGE_W/2,279-6,{align:'center'});
+    doc.text(letrasOC,M,finalY); finalY+=letrasOC.length*3.5+4;
+
+    if(o.notas){ checkPage(10); doc.setFont('helvetica','italic');doc.setFontSize(7.5);doc.setTextColor(...COLOR_GRIS);doc.text(`Notas: ${o.notas}`,M,finalY); finalY+=6; }
+
+    // Footer en todas las páginas
+    const totalPages=doc.internal.getNumberOfPages();
+    for(let i=1;i<=totalPages;i++){
+      doc.setPage(i);
+      doc.setFillColor(...COLOR_HEAD); doc.rect(M,PAGE_H-10,PAGE_W-M*2,8,'F');
+      doc.setFont('helvetica','normal');doc.setFontSize(7);doc.setTextColor(255);
+      doc.text('Documento generado por ERP DelCav Industrial Supply',PAGE_W/2,PAGE_H-5.5,{align:'center'});
+      if(totalPages>1) doc.text(`Pág. ${i}/${totalPages}`,PAGE_W-M,PAGE_H-5.5,{align:'right'});
+    }
     doc.save(`OC_${o.numero}.pdf`);
-  } catch(e){alert('Error al generar PDF: '+e.message);}
+  } catch(e){alert('Error al generar PDF OC: '+e.message);}
 }
 
 function rProveedores(){
